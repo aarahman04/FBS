@@ -1,0 +1,161 @@
+import os
+from typing import Optional, TypedDict
+
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
+
+
+class PoseEmbedding(TypedDict):
+    pose: str
+    vector: list[float]
+
+
+class Profile(TypedDict):
+    id: str
+    name: str
+    link: Optional[str]
+    instant: bool
+    embeddings: list[PoseEmbedding]
+    model_name: str
+    detector_backend: str
+    distance_metric: str
+    created_at: str
+
+
+_pool: Optional[ConnectionPool] = None
+
+
+def open_pool() -> None:
+    """Called once at FastAPI startup, alongside warm_model()."""
+    global _pool
+    # A single Railway container with a handful of concurrent requests
+    # doesn't need pgbouncer -- a small direct-connection pool is simpler and
+    # avoids pgbouncer transaction-mode caveats.
+    _pool = ConnectionPool(os.environ["DATABASE_URL"], min_size=1, max_size=5, open=True)
+
+
+def close_pool() -> None:
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
+def _pool_or_raise() -> ConnectionPool:
+    if _pool is None:
+        raise RuntimeError("db.open_pool() was not called at startup.")
+    return _pool
+
+
+def get_profile(user_id: str) -> Optional[Profile]:
+    with _pool_or_raise().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                select id, name, link, instant, embeddings, model_name,
+                       detector_backend, distance_metric, created_at
+                from profiles where id = %s
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    row["created_at"] = row["created_at"].isoformat()
+    return row  # type: ignore[return-value]
+
+
+def all_profiles() -> list[Profile]:
+    """Every registered profile, for recognize's scan-and-find-best-match."""
+    with _pool_or_raise().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                select id, name, link, instant, embeddings, model_name,
+                       detector_backend, distance_metric, created_at
+                from profiles
+                """
+            )
+            rows = cur.fetchall()
+    for row in rows:
+        row["created_at"] = row["created_at"].isoformat()
+    return rows  # type: ignore[return-value]
+
+
+def upsert_profile(
+    user_id: str,
+    name: str,
+    link: Optional[str],
+    instant: bool,
+    embeddings: list[PoseEmbedding],
+    model_name: str,
+    detector_backend: str,
+    distance_metric: str,
+) -> Profile:
+    """Full replace: used by /register, including re-scans -- the whole
+    embeddings list is swapped out, matching Phase 1's re-register semantics.
+    """
+    with _pool_or_raise().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                insert into profiles
+                    (id, name, link, instant, embeddings, model_name,
+                     detector_backend, distance_metric)
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                on conflict (id) do update set
+                    name = excluded.name,
+                    link = excluded.link,
+                    instant = excluded.instant,
+                    embeddings = excluded.embeddings,
+                    model_name = excluded.model_name,
+                    detector_backend = excluded.detector_backend,
+                    distance_metric = excluded.distance_metric,
+                    updated_at = now()
+                returning id, name, link, instant, embeddings, model_name,
+                          detector_backend, distance_metric, created_at
+                """,
+                (
+                    user_id,
+                    name,
+                    link,
+                    instant,
+                    Jsonb(embeddings),
+                    model_name,
+                    detector_backend,
+                    distance_metric,
+                ),
+            )
+            row = cur.fetchone()
+    row["created_at"] = row["created_at"].isoformat()
+    return row  # type: ignore[return-value]
+
+
+def update_profile_details(user_id: str, name: str, link: Optional[str], instant: bool) -> Optional[Profile]:
+    """Edits name/link/instant without touching embeddings -- for PATCH
+    /profile, where the face doesn't need re-enrolling."""
+    with _pool_or_raise().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                update profiles
+                set name = %s, link = %s, instant = %s, updated_at = now()
+                where id = %s
+                returning id, name, link, instant, embeddings, model_name,
+                          detector_backend, distance_metric, created_at
+                """,
+                (name, link, instant, user_id),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    row["created_at"] = row["created_at"].isoformat()
+    return row  # type: ignore[return-value]
+
+
+def delete_profile(user_id: str) -> bool:
+    with _pool_or_raise().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("delete from profiles where id = %s", (user_id,))
+            return cur.rowcount > 0

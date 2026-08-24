@@ -80,6 +80,11 @@ libraries directly is the only deterministic fix, and that needs a Dockerfile.
 Environment variables:
 - `ALLOWED_ORIGINS` — comma-separated list of frontend origins. Unset falls
   back to `*`, which is fine locally and wrong in production.
+- `DATABASE_URL` — Supabase Postgres connection string (direct connection,
+  not the pooler — see Phase 2 below). Secret; set via Railway's
+  dashboard/CLI, never committed.
+- `SUPABASE_JWT_SECRET` — Dashboard → Settings → API → JWT Secret. Verifies
+  the bearer token Supabase issues on sign-in. Secret, same rule as above.
 - `PORT` is injected by Railway; the Dockerfile's `CMD` reads it.
 
 Notes:
@@ -87,23 +92,36 @@ Notes:
   (unused but fetched by the package) into `DEEPFACE_HOME` (`/app/.deepface`).
   Mount a Railway volume there or it re-downloads on every cold start.
 - Needs ~1 GB RAM for TensorFlow. 512 MB plans will OOM.
-- `backend/profile.json` also needs a volume, or the registration disappears
-  on redeploy.
 
 ### 2. Frontend on Vercel
 
 - **Root Directory:** `frontend`
-- **Environment variable:** `VITE_API_BASE` = the Railway service's public
-  HTTPS URL. Without it the app calls `/api`, which only exists via the local
-  Vite dev proxy. It is baked in at build time, so changing it requires a
-  redeploy, not just a restart.
+- **Environment variables:**
+  - `VITE_API_BASE` = the Railway service's public HTTPS URL. Without it the
+    app calls `/api`, which only exists via the local Vite dev proxy.
+  - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — Dashboard → Settings →
+    API. Both public/safe to expose client-side.
+  - All three are baked in at build time — changing one requires a
+    redeploy, not just a restart.
 - `vercel.json` is already configured (SPA rewrites, long-cache headers for
   the MediaPipe assets).
 - Camera access requires HTTPS — Vercel provides this automatically.
 - Whatever domain Vercel serves has to appear in the backend's
   `ALLOWED_ORIGINS`, or every API call fails CORS.
 
-### 3. MediaPipe assets
+### 3. Database (Supabase Postgres) — Phase 2
+
+Run `backend/sql/001_profiles.sql` once in the Supabase SQL editor. It
+creates the `profiles` table (one row per signed-in user, embeddings stored
+as a JSONB array — same shape Phase 1's `profile.json` used) with row-level
+security enabled. See `PLAN-PHASE2.md` for the full design rationale.
+
+Google sign-in needs the OAuth client's redirect URI set to
+`https://<project-ref>.supabase.co/auth/v1/callback` in Google Cloud
+Console, and the client ID/secret entered in Supabase's Authentication →
+Providers → Google settings.
+
+### 4. MediaPipe assets
 
 `npm run build` runs `scripts/copy-mediapipe.mjs`, which copies the WASM
 runtime out of `node_modules` into `public/mediapipe/wasm`. Those ~35 MB are
@@ -114,6 +132,11 @@ it comes from Google's model host rather than npm.
 ---
 
 ## Local development
+
+Since Phase 2, both sides need real Supabase credentials — there's no more
+local-file fallback. Copy `backend/.env.example` to `backend/.env` and
+`frontend/.env.example` to `frontend/.env.local`, fill in the Supabase
+values from the dashboard, then:
 
 ```bash
 # terminal 1
