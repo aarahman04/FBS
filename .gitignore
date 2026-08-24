@@ -17,3 +17,6 @@ frontend/public/mediapipe/wasm/
 
 # Face dataset used for local detector/threshold testing -- not part of the app
 Human faces/
+
+.vercel
+.env*
