@@ -60,35 +60,48 @@ URL you don't share) and treat it as a demo with one registered face.
 
 ---
 
-## If you deploy anyway (frontend + separate backend)
+## The actual deployment (Railway backend + Vercel frontend)
 
-### 1. Backend on a container host
+### 1. Backend on Railway
 
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
-```
+Railway builds `backend/Dockerfile`. **Set the service's Root Directory to
+`backend`** — pointed at the repo root, the builder sees only `backend/` and
+`frontend/` and fails with "could not determine how to build the app".
+
+The Dockerfile exists because neither Nixpacks nor Railpack could produce a
+working image. DeepFace depends on `opencv-python` — the Qt/X11-linked build —
+so `import cv2` dies on a missing `libxcb.so.1` in a container with no X11.
+Pinning `opencv-python-headless` doesn't help: pip installs deepface's
+dependency *after* it, and both ship the same `cv2/` directory, so the GUI
+binary wins. Uninstalling it afterwards leaves `cv2/` inconsistent, because
+the file it deletes is one headless also owns. Installing the GUI shared
+libraries directly is the only deterministic fix, and that needs a Dockerfile.
+
+Environment variables:
+- `ALLOWED_ORIGINS` — comma-separated list of frontend origins. Unset falls
+  back to `*`, which is fine locally and wrong in production.
+- `PORT` is injected by Railway; the Dockerfile's `CMD` reads it.
 
 Notes:
 - First boot downloads ~95 MB of Facenet512 weights and ~119 MB RetinaFace
-  (unused but fetched by the package) into `~/.deepface`. Give the service a
-  persistent volume or it re-downloads on every restart.
-- Needs ~1 GB RAM for TensorFlow. Free tiers with 512 MB will OOM.
-- Attach a persistent disk for `backend/profile.json`, or the registration
-  disappears on redeploy.
-- Restrict CORS: `app/main.py` currently sets `allow_origins=["*"]` for local
-  development. Change it to your Vercel domain before exposing it publicly.
+  (unused but fetched by the package) into `DEEPFACE_HOME` (`/app/.deepface`).
+  Mount a Railway volume there or it re-downloads on every cold start.
+- Needs ~1 GB RAM for TensorFlow. 512 MB plans will OOM.
+- `backend/profile.json` also needs a volume, or the registration disappears
+  on redeploy.
 
 ### 2. Frontend on Vercel
 
 - **Root Directory:** `frontend`
-- **Environment variable:** `VITE_API_BASE` = your backend's public HTTPS URL
-  (e.g. `https://fbs-api.onrender.com`). Without it the app calls `/api`,
-  which only exists via the local Vite dev proxy.
+- **Environment variable:** `VITE_API_BASE` = the Railway service's public
+  HTTPS URL. Without it the app calls `/api`, which only exists via the local
+  Vite dev proxy. It is baked in at build time, so changing it requires a
+  redeploy, not just a restart.
 - `vercel.json` is already configured (SPA rewrites, long-cache headers for
   the MediaPipe assets).
 - Camera access requires HTTPS — Vercel provides this automatically.
+- Whatever domain Vercel serves has to appear in the backend's
+  `ALLOWED_ORIGINS`, or every API call fails CORS.
 
 ### 3. MediaPipe assets
 
