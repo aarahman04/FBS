@@ -7,7 +7,8 @@ import { ProfileModal } from './components/ProfileModal'
 import { StatusOverlay } from './components/StatusOverlay'
 import { captureFrame } from './lib/captureFrame'
 import { FaceTracker } from './lib/faceTracker'
-import { recognizeFrame } from './lib/api'
+import { getProfile, recognizeFrame } from './lib/api'
+import { supabase } from './lib/supabase'
 import type { FaceBox, RecognizeStatus } from './types'
 
 const POLL_DELAY_MS = 400
@@ -59,6 +60,29 @@ function App() {
     if (tracked?.available) return null
     return serverBoxRef.current
   }).current
+
+  // "Registered" now means "the signed-in visitor has their own profile" --
+  // not "someone, anyone, is registered in the system" (that was only ever
+  // correct in Phase 1 because there was exactly one possible registrant).
+  // Re-derives from the server rather than being pushed a boolean, so
+  // register/edit/delete/sign-out all self-correct through the same path
+  // instead of each needing its own truth-tracking.
+  const refreshHasProfile = useRef(async () => {
+    try {
+      const profile = await getProfile()
+      setHasProfile(profile !== null)
+    } catch {
+      setHasProfile(false)
+    }
+  }).current
+
+  useEffect(() => {
+    refreshHasProfile()
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => refreshHasProfile())
+    return () => subscription.unsubscribe()
+  }, [refreshHasProfile])
 
   useEffect(() => {
     const tracker = new FaceTracker()
@@ -121,7 +145,6 @@ function App() {
         if (cancelled) return
 
         setStatus(result.status)
-        setHasProfile(result.status !== 'not_registered')
         serverBoxRef.current = result.face ?? null
         setFaceBox(result.face ?? null)
 
@@ -226,7 +249,7 @@ function App() {
           getPose={poseAvailable ? getPose : null}
           onClose={() => setShowProfile(false)}
           onSaved={() => {
-            setHasProfile(true)
+            refreshHasProfile()
             redirectFiredRef.current = false
           }}
         />

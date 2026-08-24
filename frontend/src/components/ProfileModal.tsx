@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { deleteProfile, getProfile, registerProfile, updateProfile } from '../lib/api'
 import {
   captureSweep,
@@ -8,6 +9,7 @@ import {
   type SweepProgress,
 } from '../lib/captureFrame'
 import type { HeadPose } from '../lib/headPose'
+import { supabase } from '../lib/supabase'
 import { validateLink } from '../lib/linkValidation'
 import type { Profile } from '../types'
 
@@ -33,6 +35,8 @@ const IDLE_PROGRESS: SweepProgress = {
 }
 
 export function ProfileModal({ videoRef, getPose, onClose, onSaved }: ProfileModalProps) {
+  const [session, setSession] = useState<Session | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [stage, setStage] = useState<Stage>('details')
   const [name, setName] = useState('')
@@ -46,6 +50,27 @@ export function ProfileModal({ videoRef, getPose, onClose, onSaved }: ProfileMod
   const controlRef = useRef<SweepControl>({ cancelled: false, skipRequested: false })
 
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      setAuthLoading(false)
+    })
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Registering/editing acts on the signed-in user's own row -- nothing to
+  // fetch until a session exists, and switching accounts (or signing out)
+  // shouldn't leave a stale profile from the previous session on screen.
+  useEffect(() => {
+    if (!session) {
+      setProfile(null)
+      setName('')
+      setLink('')
+      setInstant(false)
+      return
+    }
     getProfile()
       .then((p) => {
         setProfile(p)
@@ -56,7 +81,16 @@ export function ProfileModal({ videoRef, getPose, onClose, onSaved }: ProfileMod
         }
       })
       .catch(() => setProfile(null))
-  }, [])
+  }, [session])
+
+  async function handleSignOut() {
+    setBusy(true)
+    try {
+      await supabase.auth.signOut()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     const control = controlRef.current
@@ -227,6 +261,46 @@ export function ProfileModal({ videoRef, getPose, onClose, onSaved }: ProfileMod
     )
   }
 
+  if (authLoading) {
+    return (
+      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/95">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+      </div>
+    )
+  }
+
+  // Registering/editing is account-bound -- there's nothing to show or edit
+  // until someone's signed in. Recognition itself stays open to everyone;
+  // this gate only covers managing your own profile.
+  if (!session) {
+    return (
+      <div className="absolute inset-0 z-20 flex flex-col bg-black/95 text-white">
+        <div className="flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
+          <h1 className="text-lg font-medium">Sign in</h1>
+          <button onClick={onClose} aria-label="Close" className="rounded-full p-2 text-2xl leading-none">
+            &times;
+          </button>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <p className="max-w-xs text-white/60">
+            Sign in to register your face and manage your profile.
+          </p>
+          <button
+            onClick={() =>
+              supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: window.location.origin },
+              })
+            }
+            className="rounded-full bg-white px-6 py-3 font-medium text-black"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-black/95 text-white">
       <div className="flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
@@ -336,6 +410,14 @@ export function ProfileModal({ videoRef, getPose, onClose, onSaved }: ProfileMod
             </button>
           </div>
         )}
+
+        <button
+          onClick={handleSignOut}
+          disabled={busy}
+          className="text-center text-sm text-white/40 underline disabled:opacity-50"
+        >
+          Sign out{session.user.email ? ` (${session.user.email})` : ''}
+        </button>
       </div>
     </div>
   )

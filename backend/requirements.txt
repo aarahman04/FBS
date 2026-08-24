@@ -6,3 +6,7 @@ tf-keras
 opencv-python-headless
 pillow
 numpy
+psycopg[binary]
+psycopg_pool
+pyjwt
+python-dotenv

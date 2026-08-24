@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 import numpy as np
 from deepface import DeepFace
@@ -7,7 +6,7 @@ from deepface.modules import verification as dst
 from deepface.modules.exceptions import FaceNotDetected
 from PIL import Image
 
-from .storage import PoseEmbedding, Profile, SCHEMA_VERSION
+from .db import PoseEmbedding
 
 
 class FaceBox(TypedDict):
@@ -131,25 +130,6 @@ def represent_face(image_path: str) -> tuple[list[float], FaceBox]:
         "h": area["h"] / height,
     }
     return results[0]["embedding"], box
-
-
-def build_profile(
-    name: str,
-    link: Optional[str],
-    instant: bool,
-    embeddings: list[PoseEmbedding],
-) -> Profile:
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "name": name,
-        "link": link,
-        "instant": instant,
-        "embeddings": embeddings,
-        "model_name": MODEL_NAME,
-        "detector_backend": DETECTOR_BACKEND,
-        "distance_metric": DISTANCE_METRIC,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
 
 
 def best_distance(probe: list[float], stored: list[PoseEmbedding]) -> float:

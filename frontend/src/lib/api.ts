@@ -1,3 +1,4 @@
+import { supabase } from './supabase'
 import type { ApiError, Profile, RecognizeResponse, RegisterResponse } from '../types'
 
 // Defaults to the Vite dev proxy. Set VITE_API_BASE to the backend's public
@@ -13,6 +14,18 @@ async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** register/profile all act on the signed-in user's own row -- every call
+ * needs the current Supabase session's access token. There's no meaningful
+ * fallback if it's missing: the caller shouldn't be reachable while signed
+ * out, so a missing token surfaces as the backend's 401 rather than being
+ * silently swallowed here. */
+async function authHeaders(): Promise<HeadersInit> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  return session ? { Authorization: `Bearer ${session.access_token}` } : {}
+}
+
 export async function registerProfile(
   images: Blob[],
   name: string,
@@ -25,7 +38,11 @@ export async function registerProfile(
   form.append('instant', String(instant))
   if (link.trim() !== '') form.append('link', link.trim())
 
-  const res = await fetch(`${BASE}/register`, { method: 'POST', body: form })
+  const res = await fetch(`${BASE}/register`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: form,
+  })
   return parseJsonOrThrow<RegisterResponse>(res)
 }
 
@@ -48,16 +65,23 @@ export async function updateProfile(
   form.append('instant', String(instant))
   if (link.trim() !== '') form.append('link', link.trim())
 
-  const res = await fetch(`${BASE}/profile`, { method: 'PATCH', body: form })
+  const res = await fetch(`${BASE}/profile`, {
+    method: 'PATCH',
+    headers: await authHeaders(),
+    body: form,
+  })
   return parseJsonOrThrow<Profile>(res)
 }
 
 export async function getProfile(): Promise<Profile | null> {
-  const res = await fetch(`${BASE}/profile`)
+  const res = await fetch(`${BASE}/profile`, { headers: await authHeaders() })
   return parseJsonOrThrow<Profile | null>(res)
 }
 
 export async function deleteProfile(): Promise<void> {
-  const res = await fetch(`${BASE}/profile`, { method: 'DELETE' })
+  const res = await fetch(`${BASE}/profile`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
   if (!res.ok) throw new Error(`Request failed (${res.status})`)
 }

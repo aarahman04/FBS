@@ -12,22 +12,36 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+# Must run before .auth/.db import -- both read required env vars at import
+# time. Railway injects real env vars directly, so this is a no-op in
+# production; locally it's what makes backend/.env actually get picked up.
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from .auth import require_user
+from .db import PoseEmbedding, all_profiles, close_pool, delete_profile
+from .db import get_profile as db_get_profile
+from .db import open_pool
+from .db import update_profile_details as db_update_profile_details
+from .db import upsert_profile
 from .link_validation import InvalidLinkError, validate_link
 from .recognition import (
+    DETECTOR_BACKEND,
+    DISTANCE_METRIC,
+    MODEL_NAME,
     THRESHOLD,
     DetectorUnavailableError,
     MultipleFacesError,
     NoFaceDetectedError,
     best_distance,
-    build_profile,
     represent_face,
     warm_model,
 )
 from .schemas import FaceBoxOut, ProfileOut, RecognizeResponse, RegisterResponse
-from .storage import PoseEmbedding, delete_profile, load_profile, save_profile
 
 # A sweep that yields fewer than this many usable angles isn't worth saving --
 # it would recognize about as poorly as the single-frontal-shot version did.
@@ -37,11 +51,13 @@ MAX_POSES = 24
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    open_pool()
     warm_model()
     yield
+    close_pool()
 
 
-app = FastAPI(title="FBS Phase 1 API", lifespan=lifespan)
+app = FastAPI(title="FBS Phase 2 API", lifespan=lifespan)
 
 # Local dev talks through the Vite proxy so this never matters there. A public
 # deploy is a separate origin (Vercel) hitting this API directly, so it has to
@@ -78,6 +94,7 @@ async def register(
     name: str = Form(...),
     link: Optional[str] = Form(None),
     instant: bool = Form(False),
+    user_id: str = Depends(require_user),
 ):
     name = name.strip()
     if not name:
@@ -119,8 +136,15 @@ async def register(
         )
 
     # Instant mode is meaningless without something to open.
-    save_profile(
-        build_profile(name, validated_link, instant and validated_link is not None, embeddings)
+    upsert_profile(
+        user_id,
+        name,
+        validated_link,
+        instant and validated_link is not None,
+        embeddings,
+        MODEL_NAME,
+        DETECTOR_BACKEND,
+        DISTANCE_METRIC,
     )
     return RegisterResponse(
         ok=True, poses_captured=len(embeddings), frames_rejected=rejected
@@ -129,8 +153,8 @@ async def register(
 
 @app.post("/recognize", response_model=RecognizeResponse)
 async def recognize(image: UploadFile = File(...)):
-    profile = load_profile()
-    if profile is None:
+    profiles = all_profiles()
+    if not profiles:
         return RecognizeResponse(status="not_registered")
 
     tmp_path = await _save_upload_to_temp(image)
@@ -143,24 +167,33 @@ async def recognize(image: UploadFile = File(...)):
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    distance = best_distance(probe, profile["embeddings"])
+    # Closest profile across everyone registered, not just a yes/no against
+    # one -- this is what "multi-user" actually means for recognition.
+    best_profile = None
+    best = float("inf")
+    for profile in profiles:
+        distance = best_distance(probe, profile["embeddings"])
+        if distance < best:
+            best = distance
+            best_profile = profile
+
     face = FaceBoxOut(**box)
 
-    if distance <= THRESHOLD:
+    if best_profile is not None and best <= THRESHOLD:
         return RecognizeResponse(
             status="match",
-            name=profile["name"],
-            link=profile["link"],
-            instant=profile.get("instant", False),
-            distance=round(distance, 4),
+            name=best_profile["name"],
+            link=best_profile["link"],
+            instant=best_profile.get("instant", False),
+            distance=round(best, 4),
             face=face,
         )
-    return RecognizeResponse(status="no_match", distance=round(distance, 4), face=face)
+    return RecognizeResponse(status="no_match", distance=round(best, 4), face=face)
 
 
 @app.get("/profile", response_model=Optional[ProfileOut])
-async def get_profile():
-    profile = load_profile()
+async def get_profile(user_id: str = Depends(require_user)):
+    profile = db_get_profile(user_id)
     if profile is None:
         return None
     return ProfileOut(
@@ -177,16 +210,13 @@ async def update_profile(
     name: str = Form(...),
     link: Optional[str] = Form(None),
     instant: bool = Form(False),
+    user_id: str = Depends(require_user),
 ):
     """Edit the details without re-enrolling the face.
 
     Changing a link or toggling instant mode shouldn't force the user back
     through the whole capture sweep -- the embeddings are still valid.
     """
-    profile = load_profile()
-    if profile is None:
-        raise HTTPException(status_code=404, detail="No profile registered yet.")
-
     name = name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
@@ -196,10 +226,11 @@ async def update_profile(
     except InvalidLinkError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    profile["name"] = name
-    profile["link"] = validated_link
-    profile["instant"] = instant and validated_link is not None
-    save_profile(profile)
+    profile = db_update_profile_details(
+        user_id, name, validated_link, instant and validated_link is not None
+    )
+    if profile is None:
+        raise HTTPException(status_code=404, detail="No profile registered yet.")
 
     return ProfileOut(
         name=profile["name"],
@@ -211,6 +242,6 @@ async def update_profile(
 
 
 @app.delete("/profile")
-async def remove_profile():
-    delete_profile()
+async def remove_profile(user_id: str = Depends(require_user)):
+    delete_profile(user_id)
     return {"ok": True}
