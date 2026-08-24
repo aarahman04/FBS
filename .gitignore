@@ -1,0 +1,19 @@
+# Backend
+backend/.venv/
+backend/__pycache__/
+backend/app/__pycache__/
+backend/profile.json
+*.pyc
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+# Copied from node_modules by scripts/copy-mediapipe.mjs at build time.
+frontend/public/mediapipe/wasm/
+
+# Env
+.env
+.env.local
+
+# Face dataset used for local detector/threshold testing -- not part of the app
+Human faces/
