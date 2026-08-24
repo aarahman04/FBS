@@ -1,0 +1,10 @@
+# deepface pins `opencv-python` (the full, Qt/X11-linked build) as its own
+# dependency, so pip installs it right after opencv-python-headless and it
+# wins the shared `cv2` import path -- its GUI libs (libxcb, libGL, ...)
+# aren't present in this base image and installing them is a much bigger
+# surface than just not having the GUI build in the first place. Once both
+# are on disk, removing the non-headless one leaves headless's own `cv2`
+# files as what actually gets imported.
+[phases.stripGuiOpencv]
+dependsOn = ["install"]
+cmds = [". /opt/venv/bin/activate && pip uninstall -y opencv-python"]
