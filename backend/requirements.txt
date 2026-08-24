@@ -3,6 +3,6 @@ uvicorn[standard]
 python-multipart
 deepface
 tf-keras
-opencv-python
+opencv-python-headless
 pillow
 numpy
