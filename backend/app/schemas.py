@@ -12,10 +12,16 @@ class FaceBoxOut(BaseModel):
     h: float
 
 
+class LinkOut(BaseModel):
+    kind: str
+    url: str
+    label: Optional[str] = None
+
+
 class ProfileOut(BaseModel):
     name: str
-    link: Optional[str] = None
-    instant: bool = False
+    links: list[LinkOut] = []
+    display_mode: str = "name_and_links"
     created_at: str
     pose_count: int
 
@@ -30,7 +36,7 @@ class RegisterResponse(BaseModel):
 class RecognizeResponse(BaseModel):
     status: Literal["not_registered", "no_face_detected", "no_match", "ambiguous", "match"]
     name: Optional[str] = None
-    link: Optional[str] = None
-    instant: bool = False
+    links: list[LinkOut] = []
+    display_mode: Optional[str] = None
     distance: Optional[float] = None
     face: Optional[FaceBoxOut] = None

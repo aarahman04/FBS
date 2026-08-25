@@ -7,6 +7,28 @@ export type RecognizeStatus =
   | 'ambiguous'
   | 'match'
 
+export type LinkKind =
+  | 'instagram'
+  | 'facebook'
+  | 'linkedin'
+  | 'github'
+  | 'x'
+  | 'youtube'
+  | 'custom'
+
+export interface LinkEntry {
+  kind: LinkKind
+  url: string
+  label?: string | null
+}
+
+/** idea.md §7's four recognition modes.
+ * - link_only: auto-open the first link, no name shown
+ * - name_only: show the name, open nothing
+ * - name_then_open: show the name, then auto-open the first link after a beat
+ * - name_and_links: show the name with the tappable link bar */
+export type DisplayMode = 'link_only' | 'name_only' | 'name_then_open' | 'name_and_links'
+
 export interface FaceBox {
   x: number
   y: number
@@ -17,8 +39,8 @@ export interface FaceBox {
 export interface RecognizeResponse {
   status: RecognizeStatus
   name?: string | null
-  link?: string | null
-  instant?: boolean
+  links?: LinkEntry[]
+  display_mode?: DisplayMode | null
   distance?: number | null
   face?: FaceBox | null
 }
@@ -32,8 +54,8 @@ export interface RegisterResponse {
 
 export interface Profile {
   name: string
-  link: string | null
-  instant: boolean
+  links: LinkEntry[]
+  display_mode: DisplayMode
   created_at: string
   pose_count: number
 }

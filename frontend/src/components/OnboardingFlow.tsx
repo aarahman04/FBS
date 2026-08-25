@@ -2,9 +2,10 @@ import { useState, type RefObject } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { registerProfile } from '../lib/api'
 import type { HeadPose } from '../lib/headPose'
-import { validateLink } from '../lib/linkValidation'
+import { firstLinkError, toLinkEntries } from '../lib/links'
 import { supabase } from '../lib/supabase'
 import { googleDisplayName } from '../lib/useSession'
+import type { DisplayMode } from '../types'
 import { FaceScanOverlay } from './FaceScanOverlay'
 import { ProfileFields } from './ProfileFields'
 
@@ -25,8 +26,8 @@ type Step = 'details' | 'scanning' | 'saving'
 export function OnboardingFlow({ session, videoRef, getPose, onDone }: OnboardingFlowProps) {
   const [step, setStep] = useState<Step>('details')
   const [name, setName] = useState(() => googleDisplayName(session))
-  const [link, setLink] = useState('')
-  const [instant, setInstant] = useState(false)
+  const [links, setLinks] = useState<string[]>([''])
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('name_and_links')
   const [linkError, setLinkError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,7 +37,7 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
       setError('Enter a display name.')
       return
     }
-    const err = link.trim() ? validateLink(link) : null
+    const err = firstLinkError(links)
     if (err) {
       setLinkError(err)
       return
@@ -54,7 +55,7 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
 
     setStep('saving')
     try {
-      const res = await registerProfile(blobs, name.trim(), link, instant)
+      const res = await registerProfile(blobs, name.trim(), toLinkEntries(links), displayMode)
       if (!res.ok) {
         setError(res.error ?? 'Registration failed.')
         setStep('details')
@@ -96,14 +97,14 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
               setName(v)
               setError(null)
             }}
-            link={link}
-            onLinkChange={(v) => {
-              setLink(v)
+            links={links}
+            onLinksChange={(v) => {
+              setLinks(v)
               setLinkError(null)
             }}
-            instant={instant}
-            onInstantChange={setInstant}
             linkError={linkError}
+            displayMode={displayMode}
+            onDisplayModeChange={setDisplayMode}
           />
 
           {error && <p className="text-sm text-red-400">{error}</p>}

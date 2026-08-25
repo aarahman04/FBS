@@ -11,11 +11,17 @@ class PoseEmbedding(TypedDict):
     vector: list[float]
 
 
+class LinkEntry(TypedDict):
+    kind: str
+    url: str
+    label: Optional[str]
+
+
 class Profile(TypedDict):
     id: str
     name: str
-    link: Optional[str]
-    instant: bool
+    links: list[LinkEntry]
+    display_mode: str
     embeddings: list[PoseEmbedding]
     model_name: str
     detector_backend: str
@@ -53,7 +59,7 @@ def get_profile(user_id: str) -> Optional[Profile]:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                select id, name, link, instant, embeddings, model_name,
+                select id, name, links, display_mode, embeddings, model_name,
                        detector_backend, distance_metric, created_at
                 from profiles where id = %s
                 """,
@@ -77,7 +83,7 @@ def all_profiles(exclude_user_id: Optional[str] = None) -> list[Profile]:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                select id, name, link, instant, embeddings, model_name,
+                select id, name, links, display_mode, embeddings, model_name,
                        detector_backend, distance_metric, created_at
                 from profiles
                 where %s::uuid is null or id <> %s::uuid
@@ -93,8 +99,8 @@ def all_profiles(exclude_user_id: Optional[str] = None) -> list[Profile]:
 def upsert_profile(
     user_id: str,
     name: str,
-    link: Optional[str],
-    instant: bool,
+    links: list[LinkEntry],
+    display_mode: str,
     embeddings: list[PoseEmbedding],
     model_name: str,
     detector_backend: str,
@@ -108,26 +114,26 @@ def upsert_profile(
             cur.execute(
                 """
                 insert into profiles
-                    (id, name, link, instant, embeddings, model_name,
+                    (id, name, links, display_mode, embeddings, model_name,
                      detector_backend, distance_metric)
                 values (%s, %s, %s, %s, %s, %s, %s, %s)
                 on conflict (id) do update set
                     name = excluded.name,
-                    link = excluded.link,
-                    instant = excluded.instant,
+                    links = excluded.links,
+                    display_mode = excluded.display_mode,
                     embeddings = excluded.embeddings,
                     model_name = excluded.model_name,
                     detector_backend = excluded.detector_backend,
                     distance_metric = excluded.distance_metric,
                     updated_at = now()
-                returning id, name, link, instant, embeddings, model_name,
+                returning id, name, links, display_mode, embeddings, model_name,
                           detector_backend, distance_metric, created_at
                 """,
                 (
                     user_id,
                     name,
-                    link,
-                    instant,
+                    Jsonb(links),
+                    display_mode,
                     Jsonb(embeddings),
                     model_name,
                     detector_backend,
@@ -139,20 +145,22 @@ def upsert_profile(
     return row  # type: ignore[return-value]
 
 
-def update_profile_details(user_id: str, name: str, link: Optional[str], instant: bool) -> Optional[Profile]:
-    """Edits name/link/instant without touching embeddings -- for PATCH
+def update_profile_details(
+    user_id: str, name: str, links: list[LinkEntry], display_mode: str
+) -> Optional[Profile]:
+    """Edits name/links/display_mode without touching embeddings -- for PATCH
     /profile, where the face doesn't need re-enrolling."""
     with _pool_or_raise().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
                 update profiles
-                set name = %s, link = %s, instant = %s, updated_at = now()
+                set name = %s, links = %s, display_mode = %s, updated_at = now()
                 where id = %s
-                returning id, name, link, instant, embeddings, model_name,
+                returning id, name, links, display_mode, embeddings, model_name,
                           detector_backend, distance_metric, created_at
                 """,
-                (name, link, instant, user_id),
+                (name, Jsonb(links), display_mode, user_id),
             )
             row = cur.fetchone()
     if row is None:
