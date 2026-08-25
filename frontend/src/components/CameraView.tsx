@@ -7,6 +7,10 @@ interface CameraViewProps {
    * onError: the previous camera is still fine, so the caller should revert
    * rather than tear the whole view down. */
   onFacingModeUnavailable?: (mode: 'user' | 'environment') => void
+  /** Fires once a stream is actually open. Permission is granted by then, so
+   * enumerateDevices() finally returns real camera labels/counts -- which is
+   * when the caller can reliably decide whether to offer a flip control. */
+  onReady?: () => void
 }
 
 /** Raw getUserMedia messages ("Permission denied") don't tell someone what to
@@ -29,7 +33,7 @@ function describeCameraError(err: Error): string {
 /** Owns the getUserMedia stream and renders it into a <video> element.
  * The capture loop reads frames off the forwarded video ref. */
 export const CameraView = forwardRef<HTMLVideoElement, CameraViewProps>(
-  ({ facingMode, onError, onFacingModeUnavailable }, videoRef) => {
+  ({ facingMode, onError, onFacingModeUnavailable, onReady }, videoRef) => {
     const [stream, setStream] = useState<MediaStream | null>(null)
 
     useEffect(() => {
@@ -85,6 +89,7 @@ export const CameraView = forwardRef<HTMLVideoElement, CameraViewProps>(
           }
           activeStream = s
           setStream(s)
+          onReady?.()
         })
         .catch((err: Error) => {
           // Both the exact pin and the plain hint failed. A missing camera

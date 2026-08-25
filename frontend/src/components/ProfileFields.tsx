@@ -59,7 +59,7 @@ function LinkRow({
           type="button"
           onClick={onRemove}
           aria-label="Remove link"
-          className="glass glass-interactive flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg leading-none text-white/70"
+          className="glass glass-interactive flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg leading-none text-white/70"
         >
           &times;
         </button>
