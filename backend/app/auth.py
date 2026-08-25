@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 import jwt
 from fastapi import Header, HTTPException
@@ -9,13 +10,21 @@ from fastapi import Header, HTTPException
 _JWT_SECRET = os.environ["SUPABASE_JWT_SECRET"]
 
 
-def require_user(authorization: str = Header(...)) -> str:
+def require_user(authorization: Optional[str] = Header(None)) -> str:
     """FastAPI dependency: verifies the bearer JWT, returns the user id.
 
     Raises 401 for anything wrong with the token rather than letting a
     verification error surface as a 500 -- an expired/missing/forged token is
     a client problem, not a server fault.
+
+    The header is declared Optional so a missing one is handled here as a
+    401; making it required would let FastAPI reject it first as a 422
+    validation error, which reads as "malformed request" rather than
+    "you need to sign in".
     """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status_code=401, detail="Missing bearer token.")

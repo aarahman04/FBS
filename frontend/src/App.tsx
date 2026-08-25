@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CameraView } from './components/CameraView'
 import { FaceLabel } from './components/FaceLabel'
 import { LinkOpenFallback } from './components/LinkOpenFallback'
+import { OnboardingFlow } from './components/OnboardingFlow'
 import { ProfileIcon } from './components/ProfileIcon'
 import { ProfileModal } from './components/ProfileModal'
+import { SignInScreen } from './components/SignInScreen'
 import { StatusOverlay } from './components/StatusOverlay'
 import { captureFrame } from './lib/captureFrame'
 import { FaceTracker } from './lib/faceTracker'
 import { getProfile, recognizeFrame } from './lib/api'
-import { supabase } from './lib/supabase'
+import { useSession } from './lib/useSession'
 import type { FaceBox, RecognizeStatus } from './types'
 
 const POLL_DELAY_MS = 400
@@ -24,10 +26,13 @@ type DisplayStatus = RecognizeStatus | 'idle' | 'camera_error'
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const { session, loading: authLoading } = useSession()
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [showProfile, setShowProfile] = useState(false)
-  const [hasProfile, setHasProfile] = useState(false)
+  /** null while unknown -- distinguishes "still checking" from "definitely
+   * has no profile", which is what decides whether onboarding takes over. */
+  const [hasProfile, setHasProfile] = useState<boolean | null>(null)
 
   const [status, setStatus] = useState<DisplayStatus>('idle')
   const [matchName, setMatchName] = useState<string | null>(null)
@@ -61,27 +66,25 @@ function App() {
     return serverBoxRef.current
   }).current
 
-  // "Registered" now means "the signed-in visitor has their own profile" --
-  // not "someone, anyone, is registered in the system" (that was only ever
-  // correct in Phase 1 because there was exactly one possible registrant).
-  // Re-derives from the server rather than being pushed a boolean, so
-  // register/edit/delete/sign-out all self-correct through the same path
-  // instead of each needing its own truth-tracking.
-  const refreshHasProfile = useRef(async () => {
+  // Whether the *signed-in visitor* has their own profile -- not whether
+  // anyone at all is registered. Re-derived from the server rather than
+  // tracked as a local boolean, so register/edit/delete/sign-out all
+  // self-correct through the same path.
+  const refreshHasProfile = useCallback(async () => {
+    if (!session) {
+      setHasProfile(null)
+      return
+    }
     try {
       const profile = await getProfile()
       setHasProfile(profile !== null)
     } catch {
       setHasProfile(false)
     }
-  }).current
+  }, [session])
 
   useEffect(() => {
     refreshHasProfile()
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => refreshHasProfile())
-    return () => subscription.unsubscribe()
   }, [refreshHasProfile])
 
   useEffect(() => {
@@ -127,9 +130,13 @@ function App() {
     }
   }, [showProfile])
 
+  const needsOnboarding = session !== null && hasProfile === false
+
   // Single-in-flight recognition loop: capture -> POST -> render -> wait -> repeat.
+  // Paused during onboarding: the camera is busy running the capture sweep,
+  // and recognizing bystanders mid-setup would fight it for frames.
   useEffect(() => {
-    if (showProfile || cameraError) return
+    if (showProfile || cameraError || needsOnboarding || !session) return
 
     let cancelled = false
 
@@ -192,7 +199,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [showProfile, cameraError])
+  }, [showProfile, cameraError, needsOnboarding, session])
 
   useEffect(() => () => cancelRedirect(), [])
 
@@ -200,23 +207,59 @@ function App() {
   // otherwise the previous match's name shows through the transparent
   // scanning overlay, and the manual link button (z-30) floats above the
   // modal (z-20).
-  const showLabel = !showProfile && status === 'match' && matchName && faceBox
+  const showLabel =
+    !showProfile && !needsOnboarding && status === 'match' && matchName && faceBox
+
+  if (authLoading) {
+    return (
+      <div className="flex h-dvh w-dvw items-center justify-center bg-black">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+      </div>
+    )
+  }
+
+  // The camera stays unmounted until sign-in, so the browser doesn't ask for
+  // camera permission before the user knows what the app is.
+  if (!session) return <SignInScreen />
+
+  // Waiting on the profile lookup. Without this the onboarding screen would
+  // flash for a moment on every load for an already-registered user.
+  if (hasProfile === null) {
+    return (
+      <div className="flex h-dvh w-dvw items-center justify-center bg-black">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+      </div>
+    )
+  }
 
   return (
     <div ref={containerRef} className="relative h-dvh w-dvw overflow-hidden bg-black">
       <CameraView ref={videoRef} facingMode={facingMode} onError={setCameraError} />
 
-      <ProfileIcon onClick={() => setShowProfile(true)} registered={hasProfile} />
+      {needsOnboarding && (
+        <OnboardingFlow
+          session={session}
+          videoRef={videoRef}
+          getPose={poseAvailable ? getPose : null}
+          onDone={refreshHasProfile}
+        />
+      )}
 
-      <button
-        onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
-        aria-label="Flip camera"
-        className="absolute right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-10 flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/70 bg-black/40 text-white shadow-lg backdrop-blur"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
-          <path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm-8 13a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z" />
-        </svg>
-      </button>
+      {!needsOnboarding && (
+        <ProfileIcon onClick={() => setShowProfile(true)} registered={hasProfile} />
+      )}
+
+      {!needsOnboarding && (
+        <button
+          onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
+          aria-label="Flip camera"
+          className="absolute right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-10 flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/70 bg-black/40 text-white shadow-lg backdrop-blur"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+            <path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm-8 13a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z" />
+          </svg>
+        </button>
+      )}
 
       {showLabel && (
         <FaceLabel
@@ -227,7 +270,7 @@ function App() {
         />
       )}
 
-      {redirectingTo && !showProfile && (
+      {redirectingTo && !showProfile && !needsOnboarding && (
         <div className="pointer-events-none absolute inset-x-0 bottom-10 z-20 flex justify-center px-4">
           <span className="rounded-full bg-black/70 px-4 py-2 text-sm text-white">
             Opening link…
@@ -236,15 +279,18 @@ function App() {
       )}
 
       {/* Only ever one of the two link modes is live at a time. */}
-      {manualLink && !redirectingTo && !showProfile && (
+      {manualLink && !redirectingTo && !showProfile && !needsOnboarding && (
         <LinkOpenFallback link={manualLink} onOpened={() => setManualLink(null)} />
       )}
 
-      {!cameraError && !showLabel && !showProfile && <StatusOverlay status={status} />}
+      {!cameraError && !showLabel && !showProfile && !needsOnboarding && (
+        <StatusOverlay status={status} />
+      )}
       {cameraError && <StatusOverlay status="camera_error" errorMessage={cameraError} />}
 
       {showProfile && (
         <ProfileModal
+          session={session}
           videoRef={videoRef}
           getPose={poseAvailable ? getPose : null}
           onClose={() => setShowProfile(false)}

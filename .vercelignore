@@ -1,0 +1,6 @@
+# Vercel builds only the frontend from this repo root (see vercel.json).
+# The backend is a ~1 GB TensorFlow image deployed to Railway -- uploading it
+# here would just slow every build down for nothing.
+backend/
+Human faces/
+*.md
