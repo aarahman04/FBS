@@ -36,7 +36,14 @@ Working and deployed:
 4. Reintroduce the **four recognition modes**: link-only (auto-open),
    name-only, name + delayed auto-open, name + link dropdown.
 5. **Confidence threshold with an explicit "no match" state** — already
-   satisfied by Phase 1's `THRESHOLD` / `no_match`; Phase 3 just surfaces it.
+   satisfied by Phase 1's `THRESHOLD` / `no_match`, plus the `ambiguous`
+   state added at the end of Phase 2 (recognition refuses to choose between
+   two profiles it can't tell apart). Phase 3 just surfaces these in the UI.
+
+**Carried in from Phase 2:** one face may belong to only one account.
+`/register` returns 409 otherwise. Phase 3 must not weaken this — the link
+list is per-profile, so a duplicated face would mean two competing link sets
+for the same person.
 
 ---
 

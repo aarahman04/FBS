@@ -18,6 +18,10 @@ const COPY: Record<string, { text: string; tone: string }> = {
     tone: GLASS,
   },
   no_match: { text: 'Not a registered face', tone: GLASS },
+  ambiguous: {
+    text: "Can't tell who this is — more than one profile matches.",
+    tone: GLASS,
+  },
   camera_error: {
     text: 'Camera error.',
     tone: 'bg-red-500/85 text-white backdrop-blur-xl',

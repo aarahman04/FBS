@@ -66,8 +66,13 @@ def get_profile(user_id: str) -> Optional[Profile]:
     return row  # type: ignore[return-value]
 
 
-def all_profiles() -> list[Profile]:
-    """Every registered profile, for recognize's scan-and-find-best-match."""
+def all_profiles(exclude_user_id: Optional[str] = None) -> list[Profile]:
+    """Every registered profile, for recognize's scan-and-find-best-match.
+
+    `exclude_user_id` skips one row, so registration can ask "does anyone
+    *else* already own this face" without matching the caller's own existing
+    profile when they re-scan.
+    """
     with _pool_or_raise().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -75,7 +80,9 @@ def all_profiles() -> list[Profile]:
                 select id, name, link, instant, embeddings, model_name,
                        detector_backend, distance_metric, created_at
                 from profiles
-                """
+                where %s::uuid is null or id <> %s::uuid
+                """,
+                (exclude_user_id, exclude_user_id),
             )
             rows = cur.fetchall()
     for row in rows:

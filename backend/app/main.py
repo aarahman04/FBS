@@ -30,6 +30,7 @@ from .db import update_profile_details as db_update_profile_details
 from .db import upsert_profile
 from .link_validation import InvalidLinkError, validate_link
 from .recognition import (
+    AMBIGUITY_MARGIN,
     DETECTOR_BACKEND,
     DISTANCE_METRIC,
     MODEL_NAME,
@@ -38,6 +39,7 @@ from .recognition import (
     MultipleFacesError,
     NoFaceDetectedError,
     best_distance,
+    closest_enrolled_distance,
     represent_face,
     warm_model,
 )
@@ -134,6 +136,26 @@ async def register(
 
         embeddings.append({"pose": f"sweep-{index}", "vector": vector})
 
+    # One face, one account. Without this the same person can enroll under
+    # several logins, and recognition then has no principled way to pick
+    # between them -- it returns whichever is fractionally nearer, which
+    # flips between frames and can open a stranger's link.
+    #
+    # Checked against everyone *except* the caller, so re-scanning your own
+    # face is still allowed.
+    if embeddings:
+        for other in all_profiles(exclude_user_id=user_id):
+            distance = closest_enrolled_distance(embeddings, other["embeddings"])
+            if distance <= THRESHOLD:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "This face is already registered to another account. "
+                        "Each face can belong to only one account — sign in with "
+                        "that account, or delete its profile first."
+                    ),
+                )
+
     if len(embeddings) < MIN_POSES:
         raise HTTPException(
             status_code=422,
@@ -177,26 +199,34 @@ async def recognize(image: UploadFile = File(...)):
 
     # Closest profile across everyone registered, not just a yes/no against
     # one -- this is what "multi-user" actually means for recognition.
-    best_profile = None
-    best = float("inf")
-    for profile in profiles:
-        distance = best_distance(probe, profile["embeddings"])
-        if distance < best:
-            best = distance
-            best_profile = profile
-
+    scored = sorted(
+        ((best_distance(probe, p["embeddings"]), p) for p in profiles),
+        key=lambda pair: pair[0],
+    )
+    best, best_profile = scored[0]
     face = FaceBoxOut(**box)
 
-    if best_profile is not None and best <= THRESHOLD:
-        return RecognizeResponse(
-            status="match",
-            name=best_profile["name"],
-            link=best_profile["link"],
-            instant=best_profile.get("instant", False),
-            distance=round(best, 4),
-            face=face,
-        )
-    return RecognizeResponse(status="no_match", distance=round(best, 4), face=face)
+    if best > THRESHOLD:
+        return RecognizeResponse(status="no_match", distance=round(best, 4), face=face)
+
+    # Refuse to guess between candidates the embedder can't separate. Naming
+    # the fractionally-nearer one flips between frames and can open the wrong
+    # person's link -- far worse than admitting we don't know.
+    if len(scored) > 1:
+        runner_up = scored[1][0]
+        if runner_up <= THRESHOLD and (runner_up - best) < AMBIGUITY_MARGIN:
+            return RecognizeResponse(
+                status="ambiguous", distance=round(best, 4), face=face
+            )
+
+    return RecognizeResponse(
+        status="match",
+        name=best_profile["name"],
+        link=best_profile["link"],
+        instant=best_profile.get("instant", False),
+        distance=round(best, 4),
+        face=face,
+    )
 
 
 @app.get("/profile", response_model=Optional[ProfileOut])

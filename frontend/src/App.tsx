@@ -41,6 +41,7 @@ function App() {
    * has no profile", which is what decides whether onboarding takes over. */
   const [hasProfile, setHasProfile] = useState<boolean | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
+  const [flipNote, setFlipNote] = useState<string | null>(null)
 
   const [status, setStatus] = useState<DisplayStatus>('idle')
   const [matchName, setMatchName] = useState<string | null>(null)
@@ -294,7 +295,18 @@ function App() {
 
   return (
     <div ref={containerRef} className="relative h-dvh w-dvw overflow-hidden bg-black">
-      <CameraView ref={videoRef} facingMode={facingMode} onError={setCameraError} />
+      <CameraView
+        ref={videoRef}
+        facingMode={facingMode}
+        onError={setCameraError}
+        onFacingModeUnavailable={() => {
+          // Single-camera device: revert so the button doesn't sit in a
+          // state the hardware can't honour.
+          setFacingMode('user')
+          setFlipNote('Only one camera on this device')
+          window.setTimeout(() => setFlipNote(null), 2500)
+        }}
+      />
 
       {needsOnboarding && (
         <OnboardingFlow
@@ -342,6 +354,12 @@ function App() {
       {/* Only ever one of the two link modes is live at a time. */}
       {manualLink && !redirectingTo && !showProfile && !needsOnboarding && (
         <LinkOpenFallback link={manualLink} onOpened={() => setManualLink(null)} />
+      )}
+
+      {flipNote && (
+        <div className="pointer-events-none absolute inset-x-0 top-[calc(env(safe-area-inset-top)+4.5rem)] z-20 flex justify-center px-4">
+          <span className="glass rounded-full px-4 py-2 text-sm text-white/90">{flipNote}</span>
+        </div>
       )}
 
       {!cameraError && !showLabel && !showProfile && !needsOnboarding && (
