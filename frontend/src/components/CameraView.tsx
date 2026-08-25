@@ -3,6 +3,10 @@ import { forwardRef, useEffect, useState } from 'react'
 interface CameraViewProps {
   facingMode: 'user' | 'environment'
   onError?: (message: string) => void
+  /** The requested camera doesn't exist on this device. Distinct from
+   * onError: the previous camera is still fine, so the caller should revert
+   * rather than tear the whole view down. */
+  onFacingModeUnavailable?: (mode: 'user' | 'environment') => void
 }
 
 /** Raw getUserMedia messages ("Permission denied") don't tell someone what to
@@ -25,7 +29,7 @@ function describeCameraError(err: Error): string {
 /** Owns the getUserMedia stream and renders it into a <video> element.
  * The capture loop reads frames off the forwarded video ref. */
 export const CameraView = forwardRef<HTMLVideoElement, CameraViewProps>(
-  ({ facingMode, onError }, videoRef) => {
+  ({ facingMode, onError, onFacingModeUnavailable }, videoRef) => {
     const [stream, setStream] = useState<MediaStream | null>(null)
 
     useEffect(() => {
@@ -45,8 +49,30 @@ export const CameraView = forwardRef<HTMLVideoElement, CameraViewProps>(
         return
       }
 
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode }, audio: false })
+      async function open() {
+        // A bare `facingMode: 'environment'` is only a *hint* -- phone
+        // browsers are free to ignore it and hand back the selfie camera,
+        // which is why flipping appeared to do nothing. `exact` pins the
+        // physical camera and fails loudly instead, so fall back to the hint
+        // only when the device genuinely has no such camera (a laptop with
+        // one webcam).
+        try {
+          return await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: facingMode } },
+            audio: false,
+          })
+        } catch (err) {
+          const name = (err as Error).name
+          if (name !== 'OverconstrainedError' && name !== 'NotFoundError') throw err
+          onFacingModeUnavailable?.(facingMode)
+          return await navigator.mediaDevices.getUserMedia({
+            video: { facingMode },
+            audio: false,
+          })
+        }
+      }
+
+      open()
         .then((s) => {
           if (cancelled) {
             s.getTracks().forEach((t) => t.stop())

@@ -1,4 +1,11 @@
-export type RecognizeStatus = 'not_registered' | 'no_face_detected' | 'no_match' | 'match'
+export type RecognizeStatus =
+  | 'not_registered'
+  | 'no_face_detected'
+  | 'no_match'
+  /** Two or more registered faces are too alike to choose between. Naming
+   * either one would be a guess, so the app says so instead. */
+  | 'ambiguous'
+  | 'match'
 
 export interface FaceBox {
   x: number

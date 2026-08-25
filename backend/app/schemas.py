@@ -28,7 +28,7 @@ class RegisterResponse(BaseModel):
 
 
 class RecognizeResponse(BaseModel):
-    status: Literal["not_registered", "no_face_detected", "no_match", "match"]
+    status: Literal["not_registered", "no_face_detected", "no_match", "ambiguous", "match"]
     name: Optional[str] = None
     link: Optional[str] = None
     instant: bool = False
