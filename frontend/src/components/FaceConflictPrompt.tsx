@@ -30,11 +30,11 @@ export function FaceConflictPrompt({ owner, onMove, onCancel, busy }: FaceConfli
 
         <h2 className="text-[17px] font-semibold tracking-tight">This face is already registered</h2>
         <p className="mt-2 text-[14px] leading-relaxed text-white/60">
-          It belongs to <span className="font-medium text-white/85">{owner}</span>. A face can
-          be on only one account. Move it to this account?
+          It’s on <span className="font-medium text-white/85">{owner}</span>. A face can be on
+          only one account. Move it here?
         </p>
         <p className="mt-2 text-[12px] leading-relaxed text-white/40">
-          Moving it removes the face from {owner}.
+          This only removes the face from {owner} — that account and its links stay.
         </p>
 
         <div className="mt-6 space-y-2.5">

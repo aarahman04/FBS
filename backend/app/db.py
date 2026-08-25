@@ -174,3 +174,20 @@ def delete_profile(user_id: str) -> bool:
         with conn.cursor() as cur:
             cur.execute("delete from profiles where id = %s", (user_id,))
             return cur.rowcount > 0
+
+
+def clear_profile_face(user_id: str) -> bool:
+    """Drop only the face, keeping the row (name, links, display_mode).
+
+    Used when a face is moved to another account: the old account isn't
+    deleted, it just stops being recognizable until it re-scans. Empty
+    embeddings never match (best_distance returns inf on an empty set), so the
+    profile is dormant rather than gone.
+    """
+    with _pool_or_raise().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update profiles set embeddings = '[]'::jsonb, updated_at = now() where id = %s",
+                (user_id,),
+            )
+            return cur.rowcount > 0
