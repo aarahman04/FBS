@@ -81,16 +81,20 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
   }
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-black/95 text-white">
-      <div className="px-6 pt-[calc(env(safe-area-inset-top)+2rem)]">
-        <h1 className="text-[1.75rem] font-semibold tracking-tight">Set up your face link</h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-white/55">
-          This is what people see when they point a camera at you.
-        </p>
-      </div>
+    // Scrolls when the fields + mode picker are taller than the viewport --
+    // otherwise the Continue button sits below the fold, behind the browser
+    // chrome / taskbar, with no way to reach it (especially on mobile). The
+    // min-h-full + flex-1 pair still centres the form when it does fit.
+    <div className="absolute inset-0 z-30 overflow-y-auto bg-black/95 text-white">
+      <div className="flex min-h-full flex-col px-6 pt-[calc(env(safe-area-inset-top)+2rem)] pb-[calc(env(safe-area-inset-bottom)+2.5rem)]">
+        <div>
+          <h1 className="text-[1.75rem] font-semibold tracking-tight">Set up your face link</h1>
+          <p className="mt-2 text-[15px] leading-relaxed text-white/55">
+            This is what people see when they point a camera at you.
+          </p>
+        </div>
 
-      <div className="flex flex-1 flex-col justify-center px-6 pb-8">
-        <div className="mx-auto w-full max-w-xs space-y-3">
+        <div className="mx-auto flex w-full max-w-xs flex-1 flex-col justify-center gap-3 py-8">
           <ProfileFields
             name={name}
             onNameChange={(v) => {

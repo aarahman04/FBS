@@ -93,6 +93,22 @@ button:disabled {
     mix-blend-mode: overlay;
   }
 
+  /* Clearer variant for elements that sit right over a face -- the link bar.
+     Less white fill and a touch more blur, so the camera reads through it and
+     it looks like glass rather than a frosted slab. The rim + shadow from
+     .glass still carry the "glass" read. Defined after .glass so its
+     background wins (equal specificity, later source order). */
+  .glass-clear {
+    background: linear-gradient(
+      140deg,
+      rgb(255 255 255 / 0.12) 0%,
+      rgb(255 255 255 / 0.03) 42%,
+      rgb(255 255 255 / 0.07) 100%
+    );
+    backdrop-filter: blur(30px) saturate(175%);
+    -webkit-backdrop-filter: blur(30px) saturate(175%);
+  }
+
   /* Interactive variant: presses in slightly, and the rim brightens as if
      catching more light. */
   .glass-interactive {
@@ -136,6 +152,11 @@ button:disabled {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass {
     background: rgb(20 20 22 / 0.82);
+  }
+  /* Still needs to stay legible over a bright frame without blur, but a hair
+     lighter than the default so it reads as the clearer variant. */
+  .glass-clear {
+    background: rgb(20 20 22 / 0.72);
   }
 }
 

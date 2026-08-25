@@ -16,16 +16,27 @@ interface LinkBarProps {
 /** Same easing as FaceLabel, so the bar feels attached to the head rather
  * than chasing it. */
 const POSITION_SMOOTHING = 0.45
+/** Keep the bar this far inside the frame edges when it has to be clamped. */
+const EDGE_PAD = 10
 
 function rowLabel(link: LinkEntry): string {
   if (link.kind === 'custom') return link.label?.trim() || prettyHost(link.url)
   return PLATFORM_LABEL[link.kind]
 }
 
-/** The vertical bar anchored under the face for `name_and_links` mode: one
- * glass row per link, tap to open. Positioned every frame off the shared face
- * box, reusing FaceLabel's placement math (placeLabel handles the object-cover
- * crop). */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+/** The link bar for `name_and_links` mode: one glass row per link, tap to
+ * open. Mounted to the *side* of the face (not below it), so it stays on
+ * screen even when the face fills the frame and the chin is at the bottom
+ * edge -- which is exactly when a below-the-face bar would be cut off.
+ *
+ * Prefers the right of the face; flips to the left when the right doesn't fit;
+ * and its vertical position is clamped so it never runs off the top or bottom.
+ * Positioned every frame off the shared face box, reusing placeLabel's math
+ * (which handles the object-cover crop). */
 export function LinkBar({ links, getBox, videoRef, containerRef }: LinkBarProps) {
   const nodeRef = useRef<HTMLDivElement>(null)
   const current = useRef<{ x: number; y: number } | null>(null)
@@ -46,9 +57,9 @@ export function LinkBar({ links, getBox, videoRef, containerRef }: LinkBarProps)
 
       const node = nodeRef.current
       const video = videoRef.current
-      if (!node || !video || !rect) return
+      if (!node || !rect) return
 
-      const box = getBox()
+      const box = video && getBox()
       if (!box) {
         node.style.opacity = '0'
         return
@@ -57,20 +68,44 @@ export function LinkBar({ links, getBox, videoRef, containerRef }: LinkBarProps)
       const p = placeLabel(box, video, { width: rect.width, height: rect.height })
       if (!p) return
 
-      // Sit below where FaceLabel's name would be, offset proportionally to
-      // the face size so the gap holds as the face nears or recedes.
-      const targetX = p.centerX
-      const targetY = p.bottomY + Math.max(28, p.faceWidth * 0.42)
+      // Own size: offsetWidth/Height are already laid out, so reading them
+      // here is cheap (no forced reflow of the rest of the page).
+      const barW = node.offsetWidth
+      const barH = node.offsetHeight
+      const gap = Math.max(14, p.faceWidth * 0.14)
+      const faceRight = p.centerX + p.faceWidth / 2
+      const faceLeft = p.centerX - p.faceWidth / 2
+
+      // Right of the face if the bar fits there; otherwise left; otherwise
+      // whichever side has more room, clamped inside the frame.
+      let left: number
+      if (faceRight + gap + barW <= rect.width - EDGE_PAD) {
+        left = faceRight + gap
+      } else if (faceLeft - gap - barW >= EDGE_PAD) {
+        left = faceLeft - gap - barW
+      } else if (rect.width - faceRight >= faceLeft) {
+        left = rect.width - barW - EDGE_PAD
+      } else {
+        left = EDGE_PAD
+      }
+      left = clamp(left, EDGE_PAD, Math.max(EDGE_PAD, rect.width - barW - EDGE_PAD))
+
+      // Vertically centred on the face, then clamped so it never leaves frame.
+      const top = clamp(
+        p.centerY - barH / 2,
+        EDGE_PAD,
+        Math.max(EDGE_PAD, rect.height - barH - EDGE_PAD),
+      )
 
       if (!current.current) {
-        current.current = { x: targetX, y: targetY }
+        current.current = { x: left, y: top }
       } else {
         const c = current.current
-        c.x += (targetX - c.x) * POSITION_SMOOTHING
-        c.y += (targetY - c.y) * POSITION_SMOOTHING
+        c.x += (left - c.x) * POSITION_SMOOTHING
+        c.y += (top - c.y) * POSITION_SMOOTHING
       }
       const c = current.current
-      node.style.transform = `translate3d(${c.x}px, ${c.y}px, 0) translateX(-50%)`
+      node.style.transform = `translate3d(${c.x}px, ${c.y}px, 0)`
       node.style.opacity = '1'
     }
 
@@ -85,7 +120,7 @@ export function LinkBar({ links, getBox, videoRef, containerRef }: LinkBarProps)
   return (
     <div
       ref={nodeRef}
-      className="absolute left-0 top-0 z-20 flex w-max max-w-[80vw] flex-col gap-2"
+      className="absolute left-0 top-0 z-20 flex w-max max-w-[55vw] flex-col gap-2"
       style={{ opacity: 0, willChange: 'transform', transition: 'opacity 150ms linear' }}
     >
       {links.map((link) => (
@@ -94,7 +129,7 @@ export function LinkBar({ links, getBox, videoRef, containerRef }: LinkBarProps)
           href={link.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="glass glass-interactive flex items-center gap-2.5 rounded-full py-2.5 pl-3.5 pr-4 text-white"
+          className="glass glass-clear glass-interactive flex items-center gap-2.5 rounded-full py-2.5 pl-3.5 pr-4 text-white"
         >
           <PlatformIcon kind={link.kind} url={link.url} className="h-5 w-5 shrink-0" />
           <span className="min-w-0 truncate text-[14px] font-medium tracking-tight">

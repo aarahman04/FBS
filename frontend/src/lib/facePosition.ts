@@ -4,8 +4,13 @@ export interface LabelPlacement {
   /** Container-space pixel coordinates for the label anchor. */
   centerX: number
   bottomY: number
-  /** Face width on screen, used to scale type with distance from camera. */
+  /** Vertical centre of the face on screen -- the anchor for a side-mounted
+   * element like the link bar. */
+  centerY: number
+  /** Face size on screen, used to scale type with distance from camera and to
+   * offset a side element clear of the face. */
   faceWidth: number
+  faceHeight: number
 }
 
 /** Maps a normalized face box onto the on-screen video.
@@ -30,8 +35,10 @@ export function placeLabel(
   const offsetY = (container.height - displayedHeight) / 2
 
   const faceWidth = box.w * displayedWidth
+  const faceHeight = box.h * displayedHeight
   const centerX = offsetX + (box.x + box.w / 2) * displayedWidth
   const bottomY = offsetY + (box.y + box.h) * displayedHeight
+  const centerY = offsetY + (box.y + box.h / 2) * displayedHeight
 
-  return { centerX, bottomY, faceWidth }
+  return { centerX, bottomY, centerY, faceWidth, faceHeight }
 }
