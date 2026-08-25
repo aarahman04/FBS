@@ -39,6 +39,20 @@ DISTANCE_METRIC = "cosine"
 
 THRESHOLD = dst.find_threshold(MODEL_NAME, DISTANCE_METRIC)
 
+# How much closer the best match must be than the runner-up before we're
+# willing to name someone.
+#
+# With one profile per person this never triggers. It matters when two
+# profiles hold faces the embedder can't tell apart -- the same person
+# enrolled twice, or genuine lookalikes. Both then land under THRESHOLD and
+# whichever is fractionally nearer wins, which is a coin flip that changes
+# frame to frame and can silently open the wrong person's link.
+#
+# idea.md §10: "The app must never claim a match it isn't confident about --
+# a 'no match found' result is a required state, not an edge case." Two
+# indistinguishable candidates is exactly that case.
+AMBIGUITY_MARGIN = 0.05
+
 
 class NoFaceDetectedError(Exception):
     """The image was processed fine, but contained no detectable face."""
@@ -152,3 +166,17 @@ def best_distance(probe: list[float], stored: list[PoseEmbedding]) -> float:
 
 def is_match(probe: list[float], stored: list[PoseEmbedding]) -> bool:
     return best_distance(probe, stored) <= THRESHOLD
+
+
+def closest_enrolled_distance(
+    candidate: list[PoseEmbedding], stored: list[PoseEmbedding]
+) -> float:
+    """Closest distance between two whole sets of poses.
+
+    Registration needs set-to-set comparison, not probe-to-set: a face is
+    already taken if *any* angle of the new sweep resembles *any* stored
+    angle of an existing profile.
+    """
+    if not candidate or not stored:
+        return float("inf")
+    return min(best_distance(entry["vector"], stored) for entry in candidate)

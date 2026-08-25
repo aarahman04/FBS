@@ -110,7 +110,7 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
 
           <button
             onClick={startScan}
-            className="w-full rounded-full bg-white px-6 py-3.5 font-medium text-black transition-transform duration-200 active:scale-[0.97]"
+            className="w-full rounded-full bg-white px-6 py-3 text-[15px] font-medium text-black transition-transform duration-200 active:scale-[0.97]"
           >
             Continue to face scan
           </button>

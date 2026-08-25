@@ -61,8 +61,14 @@ export const TOTAL_SWEEP_FRAMES = SWEEP_STEPS.reduce((n, s) => n + s.frames, 0)
  * view to the embedder. */
 const YAW_THRESHOLD = 0.35
 /** Nose travel along the eye-to-mouth axis once the neutral baseline is
- * removed. Roughly 15 degrees of pitch. */
-const PITCH_THRESHOLD = 0.1
+ * removed. Roughly 11 degrees of pitch.
+ *
+ * Lower than the yaw gate on purpose: tilting the chin up foreshortens the
+ * lower face and pushes the mouth keypoint toward the nose, so the measured
+ * travel is smaller than the actual head movement -- and the detector's
+ * keypoints get noisier as the nostrils come into view. At the old 0.1 the
+ * chin-up step could refuse to complete however far back the head went. */
+const PITCH_THRESHOLD = 0.07
 /** How straight "straight at the camera" has to be. */
 const CENTER_YAW_MAX = 0.22
 /** The pose must hold this long before frames are taken, so a head swinging
@@ -73,7 +79,7 @@ const FRAME_INTERVAL_MS = 350
 const SAMPLE_MS = 60
 /** After this long on one step, offer the user a way past it -- a dim room or
  * an unusual face shape shouldn't make enrollment impossible. */
-export const STUCK_AFTER_MS = 12000
+export const STUCK_AFTER_MS = 8000
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
