@@ -1,10 +1,25 @@
 import { supabase } from './supabase'
-import type { ApiError, Profile, RecognizeResponse, RegisterResponse } from '../types'
+import type {
+  ApiError,
+  DisplayMode,
+  LinkEntry,
+  Profile,
+  RecognizeResponse,
+  RegisterResponse,
+} from '../types'
 
 // Defaults to the Vite dev proxy. Set VITE_API_BASE to the backend's public
 // URL when the frontend is hosted apart from it (see DEPLOYMENT.md) -- the
 // recognition backend cannot run on Vercel itself.
-const BASE = import.meta.env.VITE_API_BASE ?? '/api'
+export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
+const BASE = API_BASE
+
+/** The backend favicon proxy for a custom link's host. Points at OUR backend,
+ * never a third party, so a viewer's browser doesn't leak its IP or the
+ * domains it sees. */
+export function faviconUrl(host: string): string {
+  return `${BASE}/favicon?host=${encodeURIComponent(host)}`
+}
 
 async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -29,14 +44,14 @@ async function authHeaders(): Promise<HeadersInit> {
 export async function registerProfile(
   images: Blob[],
   name: string,
-  link: string,
-  instant: boolean,
+  links: LinkEntry[],
+  displayMode: DisplayMode,
 ): Promise<RegisterResponse> {
   const form = new FormData()
   images.forEach((image, i) => form.append('images', image, `pose-${i}.jpg`))
   form.append('name', name)
-  form.append('instant', String(instant))
-  if (link.trim() !== '') form.append('link', link.trim())
+  form.append('links', JSON.stringify(links))
+  form.append('display_mode', displayMode)
 
   const res = await fetch(`${BASE}/register`, {
     method: 'POST',
@@ -54,16 +69,16 @@ export async function recognizeFrame(image: Blob): Promise<RecognizeResponse> {
   return parseJsonOrThrow<RecognizeResponse>(res)
 }
 
-/** Updates name/link/instant without re-running the face capture sweep. */
+/** Updates name/links/display_mode without re-running the face capture sweep. */
 export async function updateProfile(
   name: string,
-  link: string,
-  instant: boolean,
+  links: LinkEntry[],
+  displayMode: DisplayMode,
 ): Promise<Profile> {
   const form = new FormData()
   form.append('name', name)
-  form.append('instant', String(instant))
-  if (link.trim() !== '') form.append('link', link.trim())
+  form.append('links', JSON.stringify(links))
+  form.append('display_mode', displayMode)
 
   const res = await fetch(`${BASE}/profile`, {
     method: 'PATCH',

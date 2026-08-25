@@ -2,9 +2,9 @@ import { useEffect, useState, type RefObject } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { deleteProfile, getProfile, registerProfile, updateProfile } from '../lib/api'
 import type { HeadPose } from '../lib/headPose'
-import { validateLink } from '../lib/linkValidation'
+import { firstLinkError, toLinkEntries } from '../lib/links'
 import { supabase } from '../lib/supabase'
-import type { Profile } from '../types'
+import type { DisplayMode, Profile } from '../types'
 import { FaceScanOverlay } from './FaceScanOverlay'
 import { ProfileFields } from './ProfileFields'
 
@@ -26,8 +26,8 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
   const [profile, setProfile] = useState<Profile | null>(null)
   const [stage, setStage] = useState<Stage>('details')
   const [name, setName] = useState('')
-  const [link, setLink] = useState('')
-  const [instant, setInstant] = useState(false)
+  const [links, setLinks] = useState<string[]>([''])
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('name_and_links')
   const [linkError, setLinkError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -38,8 +38,8 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
         setProfile(p)
         if (p) {
           setName(p.name)
-          setLink(p.link ?? '')
-          setInstant(p.instant)
+          setLinks(p.links.length ? p.links.map((l) => l.url) : [''])
+          setDisplayMode(p.display_mode)
         }
       })
       .catch(() => setProfile(null))
@@ -50,7 +50,7 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
       setSubmitError('Enter a display name.')
       return null
     }
-    const err = link.trim() ? validateLink(link) : null
+    const err = firstLinkError(links)
     if (err) {
       setLinkError(err)
       return null
@@ -77,7 +77,7 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
 
     setStage('saving')
     try {
-      const res = await registerProfile(blobs, name.trim(), link, instant)
+      const res = await registerProfile(blobs, name.trim(), toLinkEntries(links), displayMode)
       if (!res.ok) {
         setSubmitError(res.error ?? 'Registration failed.')
         setStage('details')
@@ -100,7 +100,7 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
     setBusy(true)
     setSubmitError(null)
     try {
-      await updateProfile(trimmedName, link, instant)
+      await updateProfile(trimmedName, toLinkEntries(links), displayMode)
       onSaved()
       onClose()
     } catch (e) {
@@ -185,22 +185,29 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
 
         <section className="mt-6">
           <h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/35">
-            Your link
+            Your links
           </h2>
-          <div className="space-y-3 rounded-3xl bg-white/[0.04] p-3 ring-1 ring-inset ring-white/[0.07]">
-            <ProfileFields.Link
-              value={link}
+          <div className="rounded-3xl bg-white/[0.04] p-3 ring-1 ring-inset ring-white/[0.07]">
+            <ProfileFields.LinksEditor
+              links={links}
               onChange={(v) => {
-                setLink(v)
+                setLinks(v)
                 setLinkError(null)
               }}
-              onClearInstant={() => setInstant(false)}
               error={linkError}
             />
-            <ProfileFields.InstantToggle
-              value={instant}
-              onChange={setInstant}
-              disabled={link.trim() === ''}
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/35">
+            When your face is recognized
+          </h2>
+          <div className="rounded-3xl bg-white/[0.04] p-3 ring-1 ring-inset ring-white/[0.07]">
+            <ProfileFields.DisplayModePicker
+              value={displayMode}
+              onChange={setDisplayMode}
+              hasLinks={links.some((l) => l.trim() !== '')}
             />
           </div>
         </section>

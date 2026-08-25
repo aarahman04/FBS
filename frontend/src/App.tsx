@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CameraView } from './components/CameraView'
 import { FaceLabel } from './components/FaceLabel'
-import { LinkOpenFallback } from './components/LinkOpenFallback'
+import { LinkBar } from './components/LinkBar'
 import { OnboardingFlow } from './components/OnboardingFlow'
 import { ProfileIcon } from './components/ProfileIcon'
 import { ProfileModal } from './components/ProfileModal'
@@ -12,17 +12,19 @@ import { FaceTracker } from './lib/faceTracker'
 import { getProfile, recognizeFrame } from './lib/api'
 import { supabase } from './lib/supabase'
 import { useSession } from './lib/useSession'
-import type { FaceBox, RecognizeStatus } from './types'
+import type { DisplayMode, FaceBox, LinkEntry, RecognizeStatus } from './types'
 
 // End-to-end an instant redirect costs: this poll gap + one /recognize round
 // trip (~1-2s, DeepFace on CPU) + the countdown below. The two constants that
 // follow used to add ~6s on top of the round trip, which felt broken rather
 // than deliberate.
 const POLL_DELAY_MS = 250
-/** Beat between the name appearing and the redirect, so the person is
- * actually seen before the page navigates away. Long enough to register the
- * name, short enough not to feel stalled. */
+/** Beat before a link_only redirect fires. Short -- no name is shown in this
+ * mode, so there's nothing to read first. */
 const INSTANT_REDIRECT_MS = 900
+/** Longer beat for name_then_open: the name is meant to be seen before the
+ * page navigates away, so hold it noticeably longer than link_only. */
+const NAME_THEN_OPEN_MS = 1800
 /** Quiet period after the profile closes before instant links can fire again,
  * so the user gets a chance to act instead of being navigated away at once.
  * Only has to outlast the closing animation and the first poll. */
@@ -46,7 +48,8 @@ function App() {
   const [status, setStatus] = useState<DisplayStatus>('idle')
   const [matchName, setMatchName] = useState<string | null>(null)
   const [faceBox, setFaceBox] = useState<FaceBox | null>(null)
-  const [manualLink, setManualLink] = useState<string | null>(null)
+  const [activeLinks, setActiveLinks] = useState<LinkEntry[]>([])
+  const [activeMode, setActiveMode] = useState<DisplayMode | null>(null)
   const [redirectingTo, setRedirectingTo] = useState<string | null>(null)
 
   const redirectTimerRef = useRef<number | undefined>(undefined)
@@ -192,31 +195,34 @@ function App() {
 
         if (result.status === 'match') {
           setMatchName(result.name ?? null)
+          const mode = (result.display_mode ?? 'name_and_links') as DisplayMode
+          const links = result.links ?? []
+          setActiveMode(mode)
+          setActiveLinks(links)
 
-          if (result.link && result.instant) {
-            // Instant mode: same-tab navigation. Unlike window.open this is
-            // never blocked, so no manual fallback is needed -- and the
-            // manual control stays hidden, since the two modes are exclusive.
-            setManualLink(null)
+          const firstUrl = links[0]?.url ?? null
+          // link_only and name_then_open both auto-open the first link via
+          // same-tab navigation (never window.open, so never popup-blocked).
+          // They differ only in whether a name shows first and how long we
+          // wait. name_and_links / name_only never navigate on their own.
+          if (firstUrl && (mode === 'link_only' || mode === 'name_then_open')) {
+            const target = firstUrl
             const suppressed = Date.now() < suppressRedirectUntilRef.current
             if (!suppressed && !redirectFiredRef.current && !redirectTimerRef.current) {
-              setRedirectingTo(result.link)
-              const target = result.link
+              setRedirectingTo(target)
+              const delay = mode === 'link_only' ? INSTANT_REDIRECT_MS : NAME_THEN_OPEN_MS
               redirectTimerRef.current = window.setTimeout(() => {
                 redirectFiredRef.current = true
                 window.location.href = target
-              }, INSTANT_REDIRECT_MS)
+              }, delay)
             }
-          } else if (result.link) {
-            setManualLink(result.link)
-          } else {
-            setManualLink(null)
           }
         } else {
           // Face left the frame before the countdown finished -- don't yank
           // the page out from under someone who is no longer being seen.
           setMatchName(null)
-          setManualLink(null)
+          setActiveLinks([])
+          setActiveMode(null)
           cancelRedirect()
         }
       } catch {
@@ -242,8 +248,23 @@ function App() {
   // otherwise the previous match's name shows through the transparent
   // scanning overlay, and the manual link button (z-30) floats above the
   // modal (z-20).
+  // Every mode except link_only shows the name; link_only opens straight to
+  // the link with no name at all.
   const showLabel =
-    !showProfile && !needsOnboarding && status === 'match' && matchName && faceBox
+    !showProfile &&
+    !needsOnboarding &&
+    status === 'match' &&
+    matchName &&
+    faceBox &&
+    activeMode !== 'link_only'
+
+  const showLinkBar =
+    !showProfile &&
+    !needsOnboarding &&
+    status === 'match' &&
+    activeMode === 'name_and_links' &&
+    activeLinks.length > 0 &&
+    faceBox
 
   if (authLoading) {
     return (
@@ -342,6 +363,15 @@ function App() {
         />
       )}
 
+      {showLinkBar && (
+        <LinkBar
+          links={activeLinks}
+          getBox={getBox}
+          videoRef={videoRef}
+          containerRef={containerRef}
+        />
+      )}
+
       {redirectingTo && !showProfile && !needsOnboarding && (
         <div className="pointer-events-none absolute inset-x-0 bottom-10 z-20 flex justify-center px-4">
           <span className="glass flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm tracking-tight text-white">
@@ -349,11 +379,6 @@ function App() {
             Opening link…
           </span>
         </div>
-      )}
-
-      {/* Only ever one of the two link modes is live at a time. */}
-      {manualLink && !redirectingTo && !showProfile && !needsOnboarding && (
-        <LinkOpenFallback link={manualLink} onOpened={() => setManualLink(null)} />
       )}
 
       {flipNote && (

@@ -1,10 +1,13 @@
+import json
 import os
 import shutil
 import sys
 import tempfile
+import urllib.request
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlparse
 
 # DeepFace/gdown log download progress with emoji on stdout; Windows consoles
 # default to a cp1252 stdout that can't encode them and crash the download.
@@ -19,7 +22,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import require_user
@@ -28,7 +31,8 @@ from .db import get_profile as db_get_profile
 from .db import open_pool
 from .db import update_profile_details as db_update_profile_details
 from .db import upsert_profile
-from .link_validation import InvalidLinkError, validate_link
+from .link_validation import InvalidLinkError
+from .links import normalize_links, resolve_display_mode
 from .recognition import (
     AMBIGUITY_MARGIN,
     DETECTOR_BACKEND,
@@ -43,7 +47,7 @@ from .recognition import (
     represent_face,
     warm_model,
 )
-from .schemas import FaceBoxOut, ProfileOut, RecognizeResponse, RegisterResponse
+from .schemas import FaceBoxOut, LinkOut, ProfileOut, RecognizeResponse, RegisterResponse
 
 # A sweep that yields fewer than this many usable angles isn't worth saving --
 # it would recognize about as poorly as the single-frontal-shot version did.
@@ -98,22 +102,36 @@ async def _save_upload_to_temp(image: UploadFile) -> Path:
     return Path(tmp_path)
 
 
+def _parse_links_field(links_json: str):
+    """The links list rides in as a JSON string form field (the request is
+    multipart because of the image files, so it can't be a JSON body)."""
+    try:
+        raw = json.loads(links_json)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid links payload.") from exc
+    try:
+        return normalize_links(raw)
+    except InvalidLinkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _links_out(raw) -> list[LinkOut]:
+    return [LinkOut(kind=item["kind"], url=item["url"], label=item.get("label")) for item in (raw or [])]
+
+
 @app.post("/register", response_model=RegisterResponse)
 async def register(
     images: List[UploadFile] = File(...),
     name: str = Form(...),
-    link: Optional[str] = Form(None),
-    instant: bool = Form(False),
+    links: str = Form("[]"),
+    display_mode: str = Form("name_and_links"),
     user_id: str = Depends(require_user),
 ):
     name = name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
 
-    try:
-        validated_link = validate_link(link)
-    except InvalidLinkError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    link_entries = _parse_links_field(links)
 
     embeddings: list[PoseEmbedding] = []
     rejected = 0
@@ -165,12 +183,11 @@ async def register(
             ),
         )
 
-    # Instant mode is meaningless without something to open.
     upsert_profile(
         user_id,
         name,
-        validated_link,
-        instant and validated_link is not None,
+        link_entries,
+        resolve_display_mode(display_mode, link_entries),
         embeddings,
         MODEL_NAME,
         DETECTOR_BACKEND,
@@ -222,10 +239,57 @@ async def recognize(image: UploadFile = File(...)):
     return RecognizeResponse(
         status="match",
         name=best_profile["name"],
-        link=best_profile["link"],
-        instant=best_profile.get("instant", False),
+        links=_links_out(best_profile.get("links")),
+        display_mode=best_profile.get("display_mode", "name_and_links"),
         distance=round(best, 4),
         face=face,
+    )
+
+
+# Favicons for custom links. Fetched server-side so a viewer's browser never
+# hits a third party directly -- hotlinking google/duckduckgo from the client
+# would leak every viewer's IP and the domains they see (idea.md §10).
+_favicon_cache: dict[str, bytes] = {}
+# Neutral 1x1 transparent GIF: a positive-but-blank answer when a host has no
+# icon, so the client shows its own glyph instead of a broken image.
+_BLANK_ICON = bytes.fromhex(
+    "47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b"
+)
+
+
+def _profile_link_hosts() -> set[str]:
+    """Hosts that appear in some stored profile's links. Restricting the proxy
+    to these stops it from being used to fetch arbitrary URLs."""
+    hosts: set[str] = set()
+    for profile in all_profiles():
+        for entry in profile.get("links", []):
+            host = (urlparse(entry["url"]).hostname or "").lower()
+            if host:
+                hosts.add(host)
+    return hosts
+
+
+@app.get("/favicon")
+def favicon(host: str) -> Response:
+    host = host.strip().lower()
+    if not host or host not in _profile_link_hosts():
+        raise HTTPException(status_code=404, detail="Unknown host.")
+
+    if host not in _favicon_cache:
+        source = f"https://icons.duckduckgo.com/ip3/{host}.ico"
+        try:
+            request = urllib.request.Request(source, headers={"User-Agent": "FBS"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                _favicon_cache[host] = response.read()
+        except Exception:
+            _favicon_cache[host] = _BLANK_ICON
+
+    data = _favicon_cache[host]
+    media_type = "image/gif" if data is _BLANK_ICON else "image/x-icon"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
@@ -236,8 +300,8 @@ async def get_profile(user_id: str = Depends(require_user)):
         return None
     return ProfileOut(
         name=profile["name"],
-        link=profile["link"],
-        instant=profile.get("instant", False),
+        links=_links_out(profile.get("links")),
+        display_mode=profile.get("display_mode", "name_and_links"),
         created_at=profile["created_at"],
         pose_count=len(profile["embeddings"]),
     )
@@ -246,34 +310,31 @@ async def get_profile(user_id: str = Depends(require_user)):
 @app.patch("/profile", response_model=ProfileOut)
 async def update_profile(
     name: str = Form(...),
-    link: Optional[str] = Form(None),
-    instant: bool = Form(False),
+    links: str = Form("[]"),
+    display_mode: str = Form("name_and_links"),
     user_id: str = Depends(require_user),
 ):
     """Edit the details without re-enrolling the face.
 
-    Changing a link or toggling instant mode shouldn't force the user back
-    through the whole capture sweep -- the embeddings are still valid.
+    Changing links or the display mode shouldn't force the user back through
+    the whole capture sweep -- the embeddings are still valid.
     """
     name = name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
 
-    try:
-        validated_link = validate_link(link)
-    except InvalidLinkError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    link_entries = _parse_links_field(links)
 
     profile = db_update_profile_details(
-        user_id, name, validated_link, instant and validated_link is not None
+        user_id, name, link_entries, resolve_display_mode(display_mode, link_entries)
     )
     if profile is None:
         raise HTTPException(status_code=404, detail="No profile registered yet.")
 
     return ProfileOut(
         name=profile["name"],
-        link=profile["link"],
-        instant=profile["instant"],
+        links=_links_out(profile.get("links")),
+        display_mode=profile.get("display_mode", "name_and_links"),
         created_at=profile["created_at"],
         pose_count=len(profile["embeddings"]),
     )
