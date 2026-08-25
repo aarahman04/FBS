@@ -6,6 +6,7 @@ import { firstLinkError, toLinkEntries } from '../lib/links'
 import { supabase } from '../lib/supabase'
 import { googleDisplayName } from '../lib/useSession'
 import type { DisplayMode } from '../types'
+import { FaceConflictPrompt } from './FaceConflictPrompt'
 import { FaceScanOverlay } from './FaceScanOverlay'
 import { ProfileFields } from './ProfileFields'
 
@@ -30,6 +31,9 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
   const [displayMode, setDisplayMode] = useState<DisplayMode>('name_and_links')
   const [linkError, setLinkError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** Set when the scan matched a face already on another account. Holds the
+   * blobs so "move it here" can re-register without re-scanning. */
+  const [conflict, setConflict] = useState<{ owner: string; blobs: Blob[] } | null>(null)
 
   function startScan() {
     const trimmed = name.trim()
@@ -46,16 +50,17 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
     setStep('scanning')
   }
 
-  async function handleScanComplete(blobs: Blob[]) {
-    if (blobs.length === 0) {
-      setError('No usable frames were captured. Try again in better light.')
-      setStep('details')
-      return
-    }
-
+  async function submitRegistration(blobs: Blob[], transfer: boolean) {
     setStep('saving')
+    setConflict(null)
     try {
-      const res = await registerProfile(blobs, name.trim(), toLinkEntries(links), displayMode)
+      const res = await registerProfile(blobs, name.trim(), toLinkEntries(links), displayMode, transfer)
+      if (res.conflict) {
+        // Same face on another account. Ask before doing anything destructive.
+        setConflict({ owner: res.conflict.owner, blobs })
+        setStep('details')
+        return
+      }
       if (!res.ok) {
         setError(res.error ?? 'Registration failed.')
         setStep('details')
@@ -66,6 +71,15 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
       setError(e instanceof Error ? e.message : 'Registration failed.')
       setStep('details')
     }
+  }
+
+  function handleScanComplete(blobs: Blob[]) {
+    if (blobs.length === 0) {
+      setError('No usable frames were captured. Try again in better light.')
+      setStep('details')
+      return
+    }
+    submitRegistration(blobs, false)
   }
 
   if (step === 'scanning' || step === 'saving') {
@@ -135,6 +149,20 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
           </button>
         </div>
       </div>
+
+      {conflict && (
+        <FaceConflictPrompt
+          owner={conflict.owner}
+          busy={false}
+          onMove={() => submitRegistration(conflict.blobs, true)}
+          onCancel={() => {
+            setConflict(null)
+            setError(
+              `This face is registered to ${conflict.owner}. Move it here to continue, or sign in as ${conflict.owner} instead.`,
+            )
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -5,6 +5,7 @@ import type { HeadPose } from '../lib/headPose'
 import { firstLinkError, toLinkEntries } from '../lib/links'
 import { supabase } from '../lib/supabase'
 import type { DisplayMode, Profile } from '../types'
+import { FaceConflictPrompt } from './FaceConflictPrompt'
 import { FaceScanOverlay } from './FaceScanOverlay'
 import { ProfileFields } from './ProfileFields'
 
@@ -31,6 +32,9 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
   const [linkError, setLinkError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Re-scan matched a face on another account. Holds blobs so "move it here"
+   * doesn't re-scan. */
+  const [conflict, setConflict] = useState<{ owner: string; blobs: Blob[] } | null>(null)
 
   useEffect(() => {
     getProfile()
@@ -68,16 +72,16 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
     setStage('scanning')
   }
 
-  async function handleScanComplete(blobs: Blob[]) {
-    if (blobs.length === 0) {
-      setSubmitError('No usable frames were captured. Try again in better light.')
-      setStage('details')
-      return
-    }
-
+  async function submitRegistration(blobs: Blob[], transfer: boolean) {
     setStage('saving')
+    setConflict(null)
     try {
-      const res = await registerProfile(blobs, name.trim(), toLinkEntries(links), displayMode)
+      const res = await registerProfile(blobs, name.trim(), toLinkEntries(links), displayMode, transfer)
+      if (res.conflict) {
+        setConflict({ owner: res.conflict.owner, blobs })
+        setStage('details')
+        return
+      }
       if (!res.ok) {
         setSubmitError(res.error ?? 'Registration failed.')
         setStage('details')
@@ -89,6 +93,15 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
       setSubmitError(e instanceof Error ? e.message : 'Registration failed.')
       setStage('details')
     }
+  }
+
+  function handleScanComplete(blobs: Blob[]) {
+    if (blobs.length === 0) {
+      setSubmitError('No usable frames were captured. Try again in better light.')
+      setStage('details')
+      return
+    }
+    submitRegistration(blobs, false)
   }
 
   /** An existing profile's embeddings stay valid when only the name, link, or
@@ -273,6 +286,20 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
           )}
         </div>
       </div>
+
+      {conflict && (
+        <FaceConflictPrompt
+          owner={conflict.owner}
+          busy={false}
+          onMove={() => submitRegistration(conflict.blobs, true)}
+          onCancel={() => {
+            setConflict(null)
+            setSubmitError(
+              `That face is registered to ${conflict.owner}. Move it here to continue, or sign in as ${conflict.owner} instead.`,
+            )
+          }}
+        />
+      )}
     </div>
   )
 }

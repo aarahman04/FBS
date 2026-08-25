@@ -46,18 +46,41 @@ export async function registerProfile(
   name: string,
   links: LinkEntry[],
   displayMode: DisplayMode,
+  transfer = false,
 ): Promise<RegisterResponse> {
   const form = new FormData()
   images.forEach((image, i) => form.append('images', image, `pose-${i}.jpg`))
   form.append('name', name)
   form.append('links', JSON.stringify(links))
   form.append('display_mode', displayMode)
+  if (transfer) form.append('transfer', 'true')
 
   const res = await fetch(`${BASE}/register`, {
     method: 'POST',
     headers: await authHeaders(),
     body: form,
   })
+
+  // A 409 with the structured face-conflict body isn't a hard error -- it's a
+  // question ("this face is on another account, move it here?"). Surface it as
+  // data so the caller can ask, rather than throwing.
+  if (res.status === 409) {
+    const body = (await res.json().catch(() => null)) as { detail?: unknown } | null
+    const detail = body?.detail
+    if (
+      detail &&
+      typeof detail === 'object' &&
+      (detail as { code?: string }).code === 'face_belongs_to_other'
+    ) {
+      return { ok: false, conflict: { owner: String((detail as { owner?: string }).owner ?? '') } }
+    }
+    return { ok: false, error: typeof detail === 'string' ? detail : 'This face is already registered.' }
+  }
+
+  if (res.status === 429) {
+    return { ok: false, error: 'Too many attempts. Wait a moment and try again.' }
+  }
+
   return parseJsonOrThrow<RegisterResponse>(res)
 }
 
