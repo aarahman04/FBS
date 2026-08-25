@@ -103,15 +103,21 @@ export function FaceScanOverlay({
 
         {!saving && (
           <>
-            <p className="mt-2 text-sm text-white/80 drop-shadow">{hint}</p>
+            <p className="mt-2 text-sm text-white/80 drop-shadow">
+              {getPose ? hint : 'Follow each prompt — timing only, movement is not checked'}
+            </p>
 
-            {/* How close the head currently is to the angle being asked for. */}
-            <div className="mx-auto mt-3 h-1 w-40 overflow-hidden rounded-full bg-white/20">
-              <div
-                className={`h-full rounded-full ${sweep.holding ? 'bg-white' : 'bg-amber-300'}`}
-                style={{ width: `${Math.round(sweep.poseProgress * 100)}%` }}
-              />
-            </div>
+            {/* How close the head currently is to the angle being asked for.
+                Meaningless without pose detection, so it's hidden then rather
+                than sitting at zero and looking broken. */}
+            {getPose && (
+              <div className="mx-auto mt-3 h-1 w-40 overflow-hidden rounded-full bg-white/20">
+                <div
+                  className={`h-full rounded-full ${sweep.holding ? 'bg-white' : 'bg-amber-300'}`}
+                  style={{ width: `${Math.round(sweep.poseProgress * 100)}%` }}
+                />
+              </div>
+            )}
           </>
         )}
 

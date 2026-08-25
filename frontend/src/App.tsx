@@ -87,29 +87,51 @@ function App() {
     refreshHasProfile()
   }, [refreshHasProfile])
 
+  // The camera only mounts once the user is signed in and the profile lookup
+  // has resolved -- before that there is no <video> for the tracker to read.
+  const cameraMounted = session !== null && hasProfile !== null
+
   useEffect(() => {
+    if (!cameraMounted) return
+
     const tracker = new FaceTracker()
     trackerRef.current = tracker
     let disposed = false
+    let rafId: number | undefined
 
     tracker.init().then((ok) => {
       if (disposed) {
         tracker.close()
         return
       }
-      const video = videoRef.current
-      if (ok && video) {
+      if (!ok) return
+
+      // init() resolves on its own schedule, which can land before React has
+      // attached the <video> ref. Starting against a null element silently
+      // left pose detection off, and the enrollment sweep then fell back to
+      // timed capture -- advancing through "turn your head" prompts whether
+      // or not the head actually turned. Wait for the element instead.
+      const startWhenVideoReady = () => {
+        if (disposed) return
+        const video = videoRef.current
+        if (!video) {
+          rafId = requestAnimationFrame(startWhenVideoReady)
+          return
+        }
         tracker.start(video)
         setPoseAvailable(true)
       }
+      startWhenVideoReady()
     })
 
     return () => {
       disposed = true
+      if (rafId !== undefined) cancelAnimationFrame(rafId)
       tracker.close()
       trackerRef.current = null
+      setPoseAvailable(false)
     }
-  }, [])
+  }, [cameraMounted])
 
   function cancelRedirect() {
     if (redirectTimerRef.current) {

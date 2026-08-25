@@ -72,9 +72,17 @@ allowed_origins = (
     else ["*"]
 )
 
+# Vercel gives every preview deployment its own generated hostname, so an
+# exact-match list can't cover them -- and a blocked preflight surfaces in the
+# browser only as a generic "Load failed", which is a miserable thing to
+# debug. ALLOWED_ORIGIN_REGEX lets those match by pattern while production
+# stays an explicit allowlist.
+allowed_origin_regex = os.environ.get("ALLOWED_ORIGIN_REGEX") or None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allowed_origin_regex,
     allow_methods=["*"],
     allow_headers=["*"],
 )
