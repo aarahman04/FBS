@@ -47,9 +47,12 @@ export interface RecognizeResponse {
 
 export interface RegisterResponse {
   ok: boolean
-  poses_captured: number
-  frames_rejected: number
+  poses_captured?: number
+  frames_rejected?: number
   error?: string | null
+  /** The scanned face already belongs to another account. The caller can
+   * offer to move it here (re-register with transfer=true). */
+  conflict?: { owner: string }
 }
 
 export interface Profile {

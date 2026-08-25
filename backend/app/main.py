@@ -33,6 +33,7 @@ from .db import update_profile_details as db_update_profile_details
 from .db import upsert_profile
 from .link_validation import InvalidLinkError
 from .links import normalize_links, resolve_display_mode
+from .ratelimit import RateLimiter, limiter_dependency
 from .recognition import (
     AMBIGUITY_MARGIN,
     DETECTOR_BACKEND,
@@ -53,6 +54,17 @@ from .schemas import FaceBoxOut, LinkOut, ProfileOut, RecognizeResponse, Registe
 # it would recognize about as poorly as the single-frontal-shot version did.
 MIN_POSES = 3
 MAX_POSES = 24
+# The client sends ~10 sweep frames; anything far above MAX_POSES is either a
+# bug or an attempt to make the server buffer and process a pile of images.
+MAX_UPLOAD_IMAGES = 60
+
+# Per-client rate limits (see ratelimit.py). /recognize is public and runs a
+# CPU face model on every call -- the real cost/DoS vector -- so it gets the
+# tightest sensible cap. /register is authenticated but also heavy. /favicon is
+# cheap but public, capped so it can't be turned into a fetch amplifier.
+recognize_rate_limit = limiter_dependency(RateLimiter(max_requests=30, window_seconds=60))
+register_rate_limit = limiter_dependency(RateLimiter(max_requests=10, window_seconds=60))
+favicon_rate_limit = limiter_dependency(RateLimiter(max_requests=60, window_seconds=60))
 
 
 @asynccontextmanager
@@ -125,11 +137,22 @@ async def register(
     name: str = Form(...),
     links: str = Form("[]"),
     display_mode: str = Form("name_and_links"),
+    # Opt-in "move this face here from whatever account currently holds it".
+    # Off by default, so an unwitting duplicate is still refused with a 409 --
+    # the transfer only happens when the user has been asked and said yes.
+    transfer: bool = Form(False),
     user_id: str = Depends(require_user),
+    _rate: None = Depends(register_rate_limit),
 ):
     name = name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
+
+    if len(images) > MAX_UPLOAD_IMAGES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many images in one request (max {MAX_UPLOAD_IMAGES}).",
+        )
 
     link_entries = _parse_links_field(links)
 
@@ -154,26 +177,9 @@ async def register(
 
         embeddings.append({"pose": f"sweep-{index}", "vector": vector})
 
-    # One face, one account. Without this the same person can enroll under
-    # several logins, and recognition then has no principled way to pick
-    # between them -- it returns whichever is fractionally nearer, which
-    # flips between frames and can open a stranger's link.
-    #
-    # Checked against everyone *except* the caller, so re-scanning your own
-    # face is still allowed.
-    if embeddings:
-        for other in all_profiles(exclude_user_id=user_id):
-            distance = closest_enrolled_distance(embeddings, other["embeddings"])
-            if distance <= THRESHOLD:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"This face is already registered to “{other['name']}”. "
-                        "Each face can belong to only one account — sign in with "
-                        "that account, or delete its profile first."
-                    ),
-                )
-
+    # Must come BEFORE anything that touches other profiles: a transfer deletes
+    # the account that currently holds this face, so we can't get here, delete
+    # it, and only then discover the new scan was unusable.
     if len(embeddings) < MIN_POSES:
         raise HTTPException(
             status_code=422,
@@ -181,6 +187,31 @@ async def register(
                 f"Only {len(embeddings)} usable angle(s) captured (need at least {MIN_POSES}). "
                 "Keep your face centered and well lit, and turn your head slowly."
             ),
+        )
+
+    # One face, one account. The same face on several logins leaves recognition
+    # with no principled way to choose -- it returns whichever is fractionally
+    # nearer, which flips between frames and can open a stranger's link.
+    #
+    # Checked against everyone *except* the caller, so re-scanning your own face
+    # is always fine.
+    conflicts = [
+        other
+        for other in all_profiles(exclude_user_id=user_id)
+        if closest_enrolled_distance(embeddings, other["embeddings"]) <= THRESHOLD
+    ]
+
+    # Without an explicit transfer, a duplicate is refused. The structured body
+    # lets the client offer "move it to this account" and name who holds it.
+    if conflicts and not transfer:
+        owner = ", ".join(sorted({other["name"] for other in conflicts}))
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "face_belongs_to_other",
+                "owner": owner,
+                "message": f"This face is already registered to “{owner}”.",
+            },
         )
 
     upsert_profile(
@@ -193,13 +224,25 @@ async def register(
         DETECTOR_BACKEND,
         DISTANCE_METRIC,
     )
+
+    # Transfer: this account now owns the face, so strip it from the others.
+    # Done AFTER the upsert on purpose -- if anything fails mid-way the worst
+    # case is a leftover duplicate (recoverable, and recognition flags it as
+    # ambiguous), never a deleted profile with no replacement.
+    if conflicts and transfer:
+        for other in conflicts:
+            delete_profile(other["id"])
+
     return RegisterResponse(
         ok=True, poses_captured=len(embeddings), frames_rejected=rejected
     )
 
 
 @app.post("/recognize", response_model=RecognizeResponse)
-async def recognize(image: UploadFile = File(...)):
+async def recognize(
+    image: UploadFile = File(...),
+    _rate: None = Depends(recognize_rate_limit),
+):
     profiles = all_profiles()
     if not profiles:
         return RecognizeResponse(status="not_registered")
@@ -270,7 +313,7 @@ def _profile_link_hosts() -> set[str]:
 
 
 @app.get("/favicon")
-def favicon(host: str) -> Response:
+def favicon(host: str, _rate: None = Depends(favicon_rate_limit)) -> Response:
     host = host.strip().lower()
     if not host or host not in _profile_link_hosts():
         raise HTTPException(status_code=404, detail="Unknown host.")
