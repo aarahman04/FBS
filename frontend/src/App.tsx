@@ -37,6 +37,7 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null)
   const { session, loading: authLoading } = useSession()
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [showProfile, setShowProfile] = useState(false)
   /** null while unknown -- distinguishes "still checking" from "definitely
@@ -149,6 +150,21 @@ function App() {
     }
   }, [cameraMounted])
 
+  // Only worth offering a flip control if there's a second camera to flip to.
+  // Runs once the stream is open (via CameraView's onReady), because only then
+  // does enumerateDevices() report real camera counts rather than a
+  // permission-gated placeholder -- so a single-webcam laptop hides the button
+  // instead of showing one that just says "only one camera".
+  const refreshCameraCount = useCallback(() => {
+    navigator.mediaDevices
+      ?.enumerateDevices?.()
+      .then((devices) => {
+        const cameras = devices.filter((d) => d.kind === 'videoinput').length
+        setHasMultipleCameras(cameras > 1)
+      })
+      .catch(() => {})
+  }, [])
+
   function cancelRedirect() {
     if (redirectTimerRef.current) {
       clearTimeout(redirectTimerRef.current)
@@ -181,6 +197,11 @@ function App() {
     async function tick() {
       const video = videoRef.current
       if (!video || cancelled) return scheduleNext()
+
+      // Don't capture or upload while the tab is backgrounded (app switched,
+      // screen locked). The video is frozen anyway, and on mobile a frame POST
+      // every ~1.5s in the background is a needless battery and data drain.
+      if (document.hidden) return scheduleNext()
 
       const blob = await captureFrame(video)
       if (!blob || cancelled) return scheduleNext()
@@ -319,6 +340,7 @@ function App() {
       <CameraView
         ref={videoRef}
         facingMode={facingMode}
+        onReady={refreshCameraCount}
         onError={setCameraError}
         onFacingModeUnavailable={() => {
           // Single-camera device: revert so the button doesn't sit in a
@@ -342,7 +364,7 @@ function App() {
         <ProfileIcon onClick={() => setShowProfile(true)} registered={hasProfile} />
       )}
 
-      {!needsOnboarding && (
+      {!needsOnboarding && hasMultipleCameras && (
         <button
           onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
           aria-label="Flip camera"
