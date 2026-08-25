@@ -82,8 +82,8 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-black/95 text-white">
       <div className="px-6 pt-[calc(env(safe-area-inset-top)+2rem)]">
-        <h1 className="text-2xl font-semibold">Set up your face link</h1>
-        <p className="mt-1 text-white/60">
+        <h1 className="text-[1.75rem] font-semibold tracking-tight">Set up your face link</h1>
+        <p className="mt-2 text-[15px] leading-relaxed text-white/55">
           This is what people see when they point a camera at you.
         </p>
       </div>
@@ -110,12 +110,12 @@ export function OnboardingFlow({ session, videoRef, getPose, onDone }: Onboardin
 
           <button
             onClick={startScan}
-            className="w-full rounded-full bg-emerald-500 px-6 py-3 font-medium text-black"
+            className="w-full rounded-full bg-white px-6 py-3.5 font-medium text-black transition-transform duration-200 active:scale-[0.97]"
           >
             Continue to face scan
           </button>
 
-          <p className="text-center text-sm text-white/50">
+          <p className="text-center text-[13px] leading-relaxed text-white/40">
             You'll be guided through 5 head positions so you can be recognized
             from any angle.
           </p>

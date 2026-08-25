@@ -16,3 +16,127 @@ body,
 body {
   -webkit-font-smoothing: antialiased;
 }
+
+/* ---------------------------------------------------------------------------
+   Liquid glass
+   ---------------------------------------------------------------------------
+   Apple's material reads as glass because of three things stacked together,
+   not the blur alone: a blurred+saturated backdrop, a bright specular rim
+   along the lit edge, and a soft drop shadow separating it from what's
+   behind. Missing any one of them looks like a grey box.
+
+   True refraction would need feDisplacementMap fed by the backdrop, which no
+   browser supports inside backdrop-filter -- so the edge highlight below
+   fakes the light-bending at the rim, which is the part the eye reads.
+
+   Phase 3's per-link dropdown is built from these same classes.
+--------------------------------------------------------------------------- */
+
+.glass {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(
+      140deg,
+      rgb(255 255 255 / 0.24) 0%,
+      rgb(255 255 255 / 0.08) 42%,
+      rgb(255 255 255 / 0.14) 100%
+    );
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow:
+    /* specular rim, brightest along the top edge */
+    inset 0 1px 0 0 rgb(255 255 255 / 0.55),
+    /* hairline that traces the whole shape */
+    inset 0 0 0 1px rgb(255 255 255 / 0.16),
+    /* light pooling along the lower inside edge */
+    inset 0 -10px 26px -14px rgb(255 255 255 / 0.4),
+    /* lifts it off the camera feed */
+    0 10px 32px -10px rgb(0 0 0 / 0.6);
+}
+
+/* The rim brightens toward the top and bottom and drops out through the
+   middle -- that vertical falloff is what makes it read as curved rather
+   than flat. overlay keeps it responsive to whatever is behind. */
+.glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.3) 0%,
+    rgb(255 255 255 / 0) 38%,
+    rgb(255 255 255 / 0) 62%,
+    rgb(255 255 255 / 0.14) 100%
+  );
+  mix-blend-mode: overlay;
+}
+
+/* Without backdrop-filter the panel would be near-invisible over a bright
+   camera frame, so fall back to something solid enough to stay legible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: rgb(20 20 22 / 0.82);
+  }
+}
+
+/* Interactive variant: presses in slightly, and the rim brightens as if
+   catching more light. */
+.glass-interactive {
+  transition:
+    transform 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.glass-interactive:active {
+  transform: scale(0.97);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.7),
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    inset 0 -10px 26px -14px rgb(255 255 255 / 0.5),
+    0 4px 16px -8px rgb(0 0 0 / 0.6);
+}
+
+@media (hover: hover) {
+  .glass-interactive:hover {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.68),
+      inset 0 0 0 1px rgb(255 255 255 / 0.22),
+      inset 0 -10px 26px -14px rgb(255 255 255 / 0.48),
+      0 14px 38px -10px rgb(0 0 0 / 0.62);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-interactive {
+    transition: none;
+  }
+  .glass-interactive:active {
+    transform: none;
+  }
+}
+
+/* Slow drift behind the sign-in screen, so the first thing the user sees
+   isn't a flat black rectangle. */
+@keyframes aurora-drift {
+  0%,
+  100% {
+    transform: translate3d(-6%, -3%, 0) scale(1.1);
+  }
+  50% {
+    transform: translate3d(6%, 4%, 0) scale(1.25);
+  }
+}
+
+.aurora {
+  animation: aurora-drift 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora {
+    animation: none;
+  }
+}

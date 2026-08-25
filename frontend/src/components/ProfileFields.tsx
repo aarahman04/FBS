@@ -25,7 +25,7 @@ export function ProfileFields({
         value={name}
         onChange={(e) => onNameChange(e.target.value)}
         placeholder="Display name"
-        className="w-full rounded-lg bg-neutral-800 px-4 py-3 text-white placeholder:text-white/40"
+        className="w-full rounded-2xl bg-white/[0.07] px-4 py-3.5 text-white ring-1 ring-inset ring-white/10 transition-shadow placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-white/30"
       />
       <div>
         <input
@@ -38,7 +38,7 @@ export function ProfileFields({
             if (e.target.value.trim() === '') onInstantChange(false)
           }}
           placeholder="Link (optional) — https://…"
-          className="w-full rounded-lg bg-neutral-800 px-4 py-3 text-white placeholder:text-white/40"
+          className="w-full rounded-2xl bg-white/[0.07] px-4 py-3.5 text-white ring-1 ring-inset ring-white/10 transition-shadow placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-white/30"
         />
         {linkError && <p className="mt-1 text-sm text-red-400">{linkError}</p>}
       </div>
@@ -47,7 +47,7 @@ export function ProfileFields({
         type="button"
         onClick={() => onInstantChange(!instant)}
         disabled={link.trim() === ''}
-        className="flex w-full items-start gap-3 rounded-lg bg-neutral-800 px-4 py-3 text-left disabled:opacity-40"
+        className="flex w-full items-start gap-3 rounded-2xl bg-white/[0.07] px-4 py-3.5 text-left ring-1 ring-inset ring-white/10 transition-opacity disabled:opacity-40"
       >
         <span
           className={`mt-0.5 flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${

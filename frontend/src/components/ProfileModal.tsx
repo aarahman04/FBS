@@ -165,7 +165,7 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
           <button
             onClick={handleSaveDetails}
             disabled={busy}
-            className="w-full rounded-full bg-emerald-500 px-6 py-3 font-medium text-black disabled:opacity-50"
+            className="w-full rounded-full bg-white px-6 py-3.5 font-medium text-black transition-transform duration-200 active:scale-[0.97] disabled:opacity-50"
           >
             {busy ? 'Saving…' : 'Save changes'}
           </button>
@@ -173,12 +173,12 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
           <button
             onClick={handleStartScan}
             disabled={busy}
-            className="w-full rounded-full border border-white/25 px-6 py-3 font-medium text-white disabled:opacity-50"
+            className="glass glass-interactive w-full rounded-full px-6 py-3.5 font-medium text-white disabled:opacity-50"
           >
             Re-scan face
           </button>
 
-          <p className="text-center text-sm text-white/50">
+          <p className="text-center text-[13px] leading-relaxed text-white/40">
             Re-scanning replaces your saved face angles.
           </p>
         </div>
