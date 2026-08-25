@@ -17,6 +17,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Tailwind v4's preflight sets buttons to `cursor: default`, which makes
+   every control in the app look inert on hover. Anything clickable should
+   say so. */
+button:not(:disabled),
+[role='button']:not(:disabled),
+label[for],
+summary {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* ---------------------------------------------------------------------------
    Liquid glass
    ---------------------------------------------------------------------------
