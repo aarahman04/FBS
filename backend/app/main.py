@@ -26,7 +26,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, Uploa
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import require_user
-from .db import PoseEmbedding, all_profiles, close_pool, delete_profile
+from .db import PoseEmbedding, all_profiles, clear_profile_face, close_pool, delete_profile
 from .db import get_profile as db_get_profile
 from .db import open_pool
 from .db import update_profile_details as db_update_profile_details
@@ -225,13 +225,14 @@ async def register(
         DISTANCE_METRIC,
     )
 
-    # Transfer: this account now owns the face, so strip it from the others.
-    # Done AFTER the upsert on purpose -- if anything fails mid-way the worst
-    # case is a leftover duplicate (recoverable, and recognition flags it as
-    # ambiguous), never a deleted profile with no replacement.
+    # Transfer: this account now owns the face, so remove it from the others.
+    # Only the face is cleared -- their name, links, and account are kept, so
+    # they're simply not recognizable until they re-scan. Done AFTER the upsert
+    # so a mid-way failure can only leave a recoverable duplicate, never a face
+    # cleared with no replacement registered.
     if conflicts and transfer:
         for other in conflicts:
-            delete_profile(other["id"])
+            clear_profile_face(other["id"])
 
     return RegisterResponse(
         ok=True, poses_captured=len(embeddings), frames_rejected=rejected

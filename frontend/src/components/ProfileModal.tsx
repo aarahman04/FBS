@@ -174,7 +174,11 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
               {profile?.name ?? (name || 'Unnamed')}
             </p>
             <p className="truncate text-[13px] text-white/45">
-              {profile ? `${profile.pose_count} face angles saved` : 'Not registered yet'}
+              {!profile
+                ? 'Not registered yet'
+                : profile.pose_count === 0
+                  ? 'No face saved — re-scan to be recognized'
+                  : `${profile.pose_count} face angles saved`}
             </p>
           </div>
         </div>
