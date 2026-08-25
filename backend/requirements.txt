@@ -8,5 +8,5 @@ pillow
 numpy
 psycopg[binary]
 psycopg_pool
-pyjwt
+pyjwt[crypto]
 python-dotenv

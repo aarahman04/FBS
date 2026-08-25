@@ -10,6 +10,7 @@ import { StatusOverlay } from './components/StatusOverlay'
 import { captureFrame } from './lib/captureFrame'
 import { FaceTracker } from './lib/faceTracker'
 import { getProfile, recognizeFrame } from './lib/api'
+import { supabase } from './lib/supabase'
 import { useSession } from './lib/useSession'
 import type { FaceBox, RecognizeStatus } from './types'
 
@@ -33,6 +34,7 @@ function App() {
   /** null while unknown -- distinguishes "still checking" from "definitely
    * has no profile", which is what decides whether onboarding takes over. */
   const [hasProfile, setHasProfile] = useState<boolean | null>(null)
+  const [profileError, setProfileError] = useState<string | null>(null)
 
   const [status, setStatus] = useState<DisplayStatus>('idle')
   const [matchName, setMatchName] = useState<string | null>(null)
@@ -78,8 +80,12 @@ function App() {
     try {
       const profile = await getProfile()
       setHasProfile(profile !== null)
-    } catch {
-      setHasProfile(false)
+      setProfileError(null)
+    } catch (e) {
+      // A failed lookup is NOT "this user has no profile" -- treating it as
+      // one silently drops an already-registered user into onboarding and
+      // makes a backend outage look like lost data.
+      setProfileError(e instanceof Error ? e.message : 'Could not reach the server.')
     }
   }, [session])
 
@@ -243,6 +249,32 @@ function App() {
   // The camera stays unmounted until sign-in, so the browser doesn't ask for
   // camera permission before the user knows what the app is.
   if (!session) return <SignInScreen />
+
+  // Say the server is unreachable rather than pretending the user has no
+  // profile -- otherwise an outage looks like their registration vanished.
+  if (profileError) {
+    return (
+      <div className="flex h-dvh w-dvw flex-col items-center justify-center gap-4 bg-black px-6 text-center text-white">
+        <p className="max-w-xs text-white/70">Couldn't load your profile.</p>
+        <p className="max-w-xs text-sm text-white/40">{profileError}</p>
+        <button
+          onClick={() => {
+            setProfileError(null)
+            refreshHasProfile()
+          }}
+          className="rounded-full bg-white px-6 py-3 font-medium text-black"
+        >
+          Try again
+        </button>
+        <button
+          onClick={() => supabase.auth.signOut()}
+          className="text-sm text-white/40 underline"
+        >
+          Sign out
+        </button>
+      </div>
+    )
+  }
 
   // Waiting on the profile lookup. Without this the onboarding screen would
   // flash for a moment on every load for an already-registered user.

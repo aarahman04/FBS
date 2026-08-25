@@ -99,10 +99,21 @@ computed in the query rather than stored.
   `DELETE /profile` gain `user_id: str = Depends(require_user)`, scoped to
   that id. `POST /recognize` stays unauthenticated, scans `all_profiles()`.
 - **`requirements.txt`** — add `psycopg[binary]`, `psycopg_pool`, `pyjwt`.
-- **Railway env vars** — `DATABASE_URL` (Supabase direct connection, not
-  pooler — a single persistent container doesn't need pgbouncer) and
-  `SUPABASE_JWT_SECRET`. Secrets — set via Railway dashboard/CLI directly,
-  never pasted into chat.
+- **Railway env vars** — `DATABASE_URL` (Supabase **session pooler**) and
+  `SUPABASE_URL` (for JWKS key discovery). Secrets — set via Railway
+  dashboard/CLI directly, never pasted into chat.
+
+  Two corrections to what this plan originally said, both found the hard way
+  in deployment:
+  - *Use the pooler, not the direct connection.* `db.<ref>.supabase.co` is
+    IPv6-only and Railway has no IPv6 egress, so direct connections fail with
+    "Network is unreachable". Session mode (port 5432) preserves prepared
+    statements; transaction mode would need `prepare_threshold=None`.
+  - *Tokens are ES256, not HS256.* Current Supabase projects sign
+    asymmetrically and publish public keys as JWKS, so verification needs
+    `SUPABASE_URL` rather than the shared `SUPABASE_JWT_SECRET`. The backend
+    accepts both, choosing the key by algorithm family so a forged token
+    can't pick its own verification key.
 
 ## Frontend (`frontend/src/`)
 
