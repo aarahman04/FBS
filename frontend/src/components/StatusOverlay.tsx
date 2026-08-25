@@ -5,18 +5,23 @@ interface StatusOverlayProps {
   errorMessage?: string | null
 }
 
+const GLASS = 'glass text-white/90'
+
 const COPY: Record<string, { text: string; tone: string }> = {
-  idle: { text: 'Starting camera…', tone: 'bg-black/50 text-white' },
+  idle: { text: 'Starting camera…', tone: GLASS },
   not_registered: {
-    text: 'No profile registered yet — tap the icon top-left to register your face.',
-    tone: 'bg-black/50 text-white',
+    text: 'No faces registered yet.',
+    tone: GLASS,
   },
   no_face_detected: {
-    text: 'No face detected — center a face in frame.',
-    tone: 'bg-black/50 text-white',
+    text: 'Point the camera at a face',
+    tone: GLASS,
   },
-  no_match: { text: 'No match found.', tone: 'bg-black/50 text-white' },
-  camera_error: { text: 'Camera error.', tone: 'bg-red-500/80 text-white' },
+  no_match: { text: 'Not a registered face', tone: GLASS },
+  camera_error: {
+    text: 'Camera error.',
+    tone: 'bg-red-500/85 text-white backdrop-blur-xl',
+  },
 }
 
 /** Status messages only. A recognized name is drawn by FaceLabel, anchored to
@@ -29,7 +34,9 @@ export function StatusOverlay({ status, errorMessage }: StatusOverlayProps) {
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center px-4">
-      <div className={`rounded-full px-4 py-2 text-center text-sm ${copy.tone}`}>{text}</div>
+      <div className={`rounded-full px-5 py-2.5 text-center text-sm tracking-tight ${copy.tone}`}>
+        {text}
+      </div>
     </div>
   )
 }

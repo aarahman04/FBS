@@ -144,5 +144,17 @@ computed in the query rather than stored.
 - [ ] Repeat against live Railway/Vercel URLs after redeploy with new env
       vars set.
 
-**Stop here** once verified — no Phase 3 work (multiple links, recognition
-modes) until reviewed and approved, per the same phase-gate `PLAN.md` used.
+## Status: complete
+
+Shipped and confirmed working 2026-08-25. Beyond the plan above, deployment
+surfaced four failures worth remembering — all documented in
+`DEPLOYMENT.md` and fixed: opencv's X11 dependency in slim containers,
+Supabase's IPv6-only direct DB connection, an unencoded `@` in the database
+password breaking URL parsing, and Supabase issuing ES256 rather than HS256
+JWTs.
+
+A final styling pass added the liquid-glass UI system (`.glass`,
+`.glass-interactive` in `frontend/src/index.css`) and cut instant-redirect
+latency from ~6-7s to ~3s.
+
+Phase 3 is planned in `PLAN-PHASE3.md` — **not started**.

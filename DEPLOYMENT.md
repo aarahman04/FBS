@@ -111,6 +111,24 @@ Notes:
 
 ### 3. Database (Supabase Postgres) — Phase 2
 
+**Connection string: use the session pooler, not the direct connection.**
+`db.<ref>.supabase.co` resolves to IPv6 only and Railway has no IPv6 egress,
+so a direct connection fails with `Network is unreachable` behind a 30-second
+`PoolTimeout`. Take the *Session pooler* string from Dashboard → Connect
+(`aws-0-<region>.pooler.supabase.com:5432`, user `postgres.<ref>`). Session
+mode preserves prepared statements; transaction mode would need
+`prepare_threshold=None`.
+
+**Percent-encode the password.** libpq splits the URL on the first `@`, so an
+unencoded `@` in the password turns part of it into the hostname and surfaces
+as a confusing DNS failure.
+
+**Auth uses `SUPABASE_URL`, not `SUPABASE_JWT_SECRET`.** Current Supabase
+projects sign JWTs asymmetrically (ES256) and publish public keys as JWKS.
+The backend accepts both styles, but new projects need `SUPABASE_URL` set so
+it can fetch the keys.
+
+
 Run `backend/sql/001_profiles.sql` once in the Supabase SQL editor. It
 creates the `profiles` table (one row per signed-in user, embeddings stored
 as a JSONB array — same shape Phase 1's `profile.json` used) with row-level

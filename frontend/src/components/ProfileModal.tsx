@@ -133,39 +133,85 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
     )
   }
 
+  const initial = (profile?.name ?? session.user.email ?? '?').trim().charAt(0).toUpperCase()
+
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-black/95 text-white">
-      <div className="flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
-        <h1 className="text-lg font-medium">Your profile</h1>
-        <button onClick={onClose} aria-label="Close" className="rounded-full p-2 text-2xl leading-none">
+    <div className="absolute inset-0 z-20 flex flex-col overflow-y-auto bg-black/95 text-white">
+      {/* Sticky so the way out stays reachable once the content scrolls. */}
+      <div className="sticky top-0 z-10 flex items-center justify-between bg-black/80 px-5 pb-3 pt-[calc(env(safe-area-inset-top)+1rem)] backdrop-blur-xl">
+        <h1 className="text-[17px] font-semibold tracking-tight">Your profile</h1>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="glass glass-interactive flex h-9 w-9 items-center justify-center rounded-full text-lg leading-none text-white/80"
+        >
           &times;
         </button>
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-5 overflow-y-auto px-6 pb-8">
-        <div className="w-full max-w-xs space-y-3">
-          <ProfileFields
-            name={name}
-            onNameChange={(v) => {
-              setName(v)
-              setSubmitError(null)
-            }}
-            link={link}
-            onLinkChange={(v) => {
-              setLink(v)
-              setLinkError(null)
-            }}
-            instant={instant}
-            onInstantChange={setInstant}
-            linkError={linkError}
-          />
+      <div className="mx-auto w-full max-w-sm px-5 pb-10">
+        {/* Identity up top: who this profile belongs to, before any controls
+            that change it. */}
+        <div className="flex items-center gap-3.5 py-5">
+          <div className="glass flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-semibold">
+            {initial}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[17px] font-medium leading-tight">
+              {profile?.name ?? (name || 'Unnamed')}
+            </p>
+            <p className="truncate text-[13px] text-white/45">
+              {profile ? `${profile.pose_count} face angles saved` : 'Not registered yet'}
+            </p>
+          </div>
+        </div>
 
-          {submitError && <p className="text-sm text-red-400">{submitError}</p>}
+        {/* Each group gets a label and its own card, so the name field and
+            the link settings stop reading as one undifferentiated stack. */}
+        <section className="mt-1">
+          <h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/35">
+            Display name
+          </h2>
+          <div className="rounded-3xl bg-white/[0.04] p-3 ring-1 ring-inset ring-white/[0.07]">
+            <ProfileFields.Name
+              value={name}
+              onChange={(v) => {
+                setName(v)
+                setSubmitError(null)
+              }}
+            />
+          </div>
+        </section>
 
+        <section className="mt-6">
+          <h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/35">
+            Your link
+          </h2>
+          <div className="space-y-3 rounded-3xl bg-white/[0.04] p-3 ring-1 ring-inset ring-white/[0.07]">
+            <ProfileFields.Link
+              value={link}
+              onChange={(v) => {
+                setLink(v)
+                setLinkError(null)
+              }}
+              onClearInstant={() => setInstant(false)}
+              error={linkError}
+            />
+            <ProfileFields.InstantToggle
+              value={instant}
+              onChange={setInstant}
+              disabled={link.trim() === ''}
+            />
+          </div>
+        </section>
+
+        {submitError && <p className="mt-4 px-1 text-sm text-red-400">{submitError}</p>}
+
+        <div className="mt-6 space-y-2.5">
           <button
             onClick={handleSaveDetails}
             disabled={busy}
-            className="w-full rounded-full bg-emerald-500 px-6 py-3 font-medium text-black disabled:opacity-50"
+            className="w-full rounded-full bg-white px-6 py-3.5 font-medium text-black transition-transform duration-200 active:scale-[0.97] disabled:opacity-50"
           >
             {busy ? 'Saving…' : 'Save changes'}
           </button>
@@ -173,39 +219,52 @@ export function ProfileModal({ session, videoRef, getPose, onClose, onSaved }: P
           <button
             onClick={handleStartScan}
             disabled={busy}
-            className="w-full rounded-full border border-white/25 px-6 py-3 font-medium text-white disabled:opacity-50"
+            className="glass glass-interactive w-full rounded-full px-6 py-3.5 font-medium text-white disabled:opacity-50"
           >
             Re-scan face
           </button>
-
-          <p className="text-center text-sm text-white/50">
+          <p className="px-1 pt-0.5 text-center text-[13px] leading-relaxed text-white/35">
             Re-scanning replaces your saved face angles.
           </p>
         </div>
 
-        {profile && (
-          <div className="text-center text-sm text-white/50">
-            <p>
-              Registered as <span className="text-white">{profile.name}</span> ·{' '}
-              {profile.pose_count} angles
-            </p>
+        {/* Account-level actions, set apart from the editing controls so
+            neither is hit by accident. */}
+        <div className="mt-9 border-t border-white/10 pt-5">
+          <button
+            onClick={() => supabase.auth.signOut()}
+            disabled={busy}
+            className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors hover:bg-white/[0.06] disabled:opacity-50"
+          >
+            <span className="min-w-0">
+              <span className="block text-[15px]">Sign out</span>
+              {session.user.email && (
+                <span className="block truncate text-[13px] text-white/40">
+                  {session.user.email}
+                </span>
+              )}
+            </span>
+            <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-white/30">
+              <path
+                d="m9 6 6 6-6 6"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+
+          {profile && (
             <button
               onClick={handleDelete}
               disabled={busy}
-              className="mt-3 text-red-400 underline disabled:opacity-50"
+              className="mt-1 w-full rounded-2xl px-3 py-3 text-left text-[15px] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
             >
               Delete registered profile
             </button>
-          </div>
-        )}
-
-        <button
-          onClick={() => supabase.auth.signOut()}
-          disabled={busy}
-          className="text-center text-sm text-white/40 underline disabled:opacity-50"
-        >
-          Sign out{session.user.email ? ` (${session.user.email})` : ''}
-        </button>
+          )}
+        </div>
       </div>
     </div>
   )

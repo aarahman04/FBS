@@ -14,13 +14,19 @@ import { supabase } from './lib/supabase'
 import { useSession } from './lib/useSession'
 import type { FaceBox, RecognizeStatus } from './types'
 
-const POLL_DELAY_MS = 400
+// End-to-end an instant redirect costs: this poll gap + one /recognize round
+// trip (~1-2s, DeepFace on CPU) + the countdown below. The two constants that
+// follow used to add ~6s on top of the round trip, which felt broken rather
+// than deliberate.
+const POLL_DELAY_MS = 250
 /** Beat between the name appearing and the redirect, so the person is
- * actually seen before the page navigates away. */
-const INSTANT_REDIRECT_MS = 2000
+ * actually seen before the page navigates away. Long enough to register the
+ * name, short enough not to feel stalled. */
+const INSTANT_REDIRECT_MS = 900
 /** Quiet period after the profile closes before instant links can fire again,
- * so the user gets a chance to act instead of being navigated away at once. */
-const REDIRECT_GRACE_MS = 4000
+ * so the user gets a chance to act instead of being navigated away at once.
+ * Only has to outlast the closing animation and the first poll. */
+const REDIRECT_GRACE_MS = 1200
 
 type DisplayStatus = RecognizeStatus | 'idle' | 'camera_error'
 
@@ -307,7 +313,7 @@ function App() {
         <button
           onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
           aria-label="Flip camera"
-          className="absolute right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-10 flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/70 bg-black/40 text-white shadow-lg backdrop-blur"
+          className="glass glass-interactive absolute right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-10 flex h-11 w-11 items-center justify-center rounded-full text-white"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
             <path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm-8 13a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z" />
@@ -326,7 +332,8 @@ function App() {
 
       {redirectingTo && !showProfile && !needsOnboarding && (
         <div className="pointer-events-none absolute inset-x-0 bottom-10 z-20 flex justify-center px-4">
-          <span className="rounded-full bg-black/70 px-4 py-2 text-sm text-white">
+          <span className="glass flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm tracking-tight text-white">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-[1.5px] border-white/30 border-t-white" />
             Opening link…
           </span>
         </div>
