@@ -150,7 +150,7 @@ async def register(
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        "This face is already registered to another account. "
+                        f"This face is already registered to “{other['name']}”. "
                         "Each face can belong to only one account — sign in with "
                         "that account, or delete its profile first."
                     ),

@@ -53,9 +53,15 @@ export const CameraView = forwardRef<HTMLVideoElement, CameraViewProps>(
         // A bare `facingMode: 'environment'` is only a *hint* -- phone
         // browsers are free to ignore it and hand back the selfie camera,
         // which is why flipping appeared to do nothing. `exact` pins the
-        // physical camera and fails loudly instead, so fall back to the hint
-        // only when the device genuinely has no such camera (a laptop with
-        // one webcam).
+        // physical camera and fails loudly instead.
+        //
+        // But plenty of phones that DO have a back camera still reject the
+        // `exact` form with OverconstrainedError. Retry with the plain hint
+        // before giving up -- most of those honour the hint. Crucially, don't
+        // report the camera as unavailable here: only the outer catch, once
+        // BOTH attempts have failed, knows the camera truly isn't there.
+        // Signalling "unavailable" from inside the fallback reverted the flip
+        // to the front camera even as this line was opening the back one.
         try {
           return await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { exact: facingMode } },
@@ -64,7 +70,6 @@ export const CameraView = forwardRef<HTMLVideoElement, CameraViewProps>(
         } catch (err) {
           const name = (err as Error).name
           if (name !== 'OverconstrainedError' && name !== 'NotFoundError') throw err
-          onFacingModeUnavailable?.(facingMode)
           return await navigator.mediaDevices.getUserMedia({
             video: { facingMode },
             audio: false,
@@ -82,7 +87,15 @@ export const CameraView = forwardRef<HTMLVideoElement, CameraViewProps>(
           setStream(s)
         })
         .catch((err: Error) => {
-          onError?.(describeCameraError(err))
+          // Both the exact pin and the plain hint failed. A missing camera
+          // means "revert to the one that works"; anything else is a real
+          // error worth showing.
+          const name = err.name
+          if (name === 'OverconstrainedError' || name === 'NotFoundError') {
+            onFacingModeUnavailable?.(facingMode)
+          } else {
+            onError?.(describeCameraError(err))
+          }
         })
 
       return () => {
