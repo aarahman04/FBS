@@ -46,8 +46,16 @@ handful of queries — no ORM/migration-tool overhead.
 No extra network call per request.
 
 **Explicitly out of scope for Phase 2** (deliberate, not an oversight):
-- Enforcing one-face-per-account (two Google accounts could register the
-  same face — not prevented). Candidate for Phase 3/4.
+- ~~Enforcing one-face-per-account~~ — **deferred, then reversed.** Shipping
+  without it was the wrong call. The same person enrolled under three
+  accounts; recognition returned whichever profile was fractionally nearer,
+  flip-flopped between names frame to frame, and opened a different
+  account's instant link while never showing the right profile at all.
+  Now enforced at both ends: `/register` returns 409 for a face another
+  account already owns, and recognition returns `ambiguous` instead of
+  choosing between candidates it can't separate (`AMBIGUITY_MARGIN` in
+  `recognition.py`). `scripts/find_duplicate_faces.py` reports collisions
+  enrolled before the guard existed.
 - Apple sign-in (per spec, deferred to closer to App Store submission).
 - pgvector / similarity indexing.
 
